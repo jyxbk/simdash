@@ -7,16 +7,22 @@ Assetto Corsa und schickt sie an SimDash: http://SERVER-IP:8080
 Einrichtung (einmalig)
 1. Python installieren (falls noch nicht da). In PowerShell:
      winget install Python.Python.3.12
-2. Diesen Ordner an einen festen Platz legen, z. B. C:\SimDash
-3. simdash.ini öffnen und bei token= den Token eintragen (kommt per Telegram).
-4. start_simdash.bat doppelklicken -> Fenster zeigt "Collector gestartet".
-5. Wenn alles passt: autostart_einrichten.bat doppelklicken. Dann läuft der
-   Collector bei jeder Anmeldung unsichtbar im Hintergrund.
+2. Diesen Ordner nach C:\SimDash legen.
+3. simdash.ini öffnen und bei token= den Token eintragen.
+4. Verknüpfungen auf dem Desktop anlegen (Rechtsklick > Neu > Verknüpfung):
+     "SimDash Test":      py -3 C:\SimDash\simdash_collector.py --dump
+     "SimDash Collector": pyw -3 C:\SimDash\simdash_collector.py
+   (Keine .bat-Dateien: Smart App Control blockiert sie, Python selbst ist signiert.)
 
 Test im Spiel
-- test_dump.bat starten, ins Auto setzen und losfahren. Einmal pro Sekunde
+- "SimDash Test" starten, ins Auto setzen und losfahren. Einmal pro Sekunde
   erscheinen Rundenzahl, laufende Zeit, Strecke und Auto.
   Stimmen Strecke/Auto/Zeit -> passt. Sonst die Ausgabe an Claude schicken.
+
+Autostart
+- Win+R, shell:startup, dort eine Kopie der Verknüpfung "SimDash Collector" ablegen.
+- Wichtig: Der Collector muss in der angemeldeten Desktop-Sitzung laufen
+  (die Spiele stellen ihre Daten nur dort bereit), nicht als Dienst.
 
 Wo liegt was?
 - Jede Runde wird zuerst lokal gespeichert:  %LOCALAPPDATA%\SimDash\laps.csv
@@ -30,4 +36,4 @@ Hinweise
 - Assetto Corsa (1) meldet keine Gültigkeit -> "unbekannt".
 - "geschätzt" = der Rundenzähler des Spiels kam nicht (z. B. Verbindungsabbruch);
   die Zeit stammt aus der laufenden Rundenzeit an der Ziellinie (auf ~20 ms genau).
-- Autostart entfernen: shell:startup öffnen und SimDash-Collector.bat löschen.
+- Autostart entfernen: shell:startup öffnen und die Verknüpfung löschen.
