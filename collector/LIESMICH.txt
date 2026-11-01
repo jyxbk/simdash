@@ -2,7 +2,7 @@ SimDash-Collector
 =================
 
 Liest die Rundenzeiten aus AC EVO, iRacing, ACC, AC Rally (experimentell) und
-Assetto Corsa und schickt sie an SimDash: http://SERVER-IP:8080
+Assetto Corsa und schickt sie an deinen SimDash-Server (Adresse in simdash.ini).
 
 Einrichtung (einmalig)
 1. Python installieren (falls noch nicht da). In PowerShell:
@@ -17,7 +17,7 @@ Einrichtung (einmalig)
 Test im Spiel
 - "SimDash Test" starten, ins Auto setzen und losfahren. Einmal pro Sekunde
   erscheinen Rundenzahl, laufende Zeit, Strecke und Auto.
-  Stimmen Strecke/Auto/Zeit -> passt. Sonst die Ausgabe an Claude schicken.
+  Stimmen Strecke/Auto/Zeit -> passt. Sonst die Ausgabe in einem Issue posten.
 
 Autostart
 - Win+R, shell:startup, dort eine Kopie der Verknüpfung "SimDash Collector" ablegen.

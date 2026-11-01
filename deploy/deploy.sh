@@ -1,16 +1,20 @@
 #!/bin/sh
-# Spielt den Server in den LXC 112 (simdash) ein. Daten (DB) bleiben unter /var/lib/simdash.
+# Spielt den Server auf einen Debian-Host/LXC ein (per SSH als root). Daten (DB) bleiben unter /var/lib/simdash.
 set -e
-HOST=${1:-root@SERVER-IP}
+HOST=${1:?Aufruf: deploy/deploy.sh root@<server-ip>}
 cd "$(dirname "$0")/.."
 # Windows-Paket für den Download über die Weboberfläche
-python3 - <<'PY'
-import zipfile, pathlib
+HOST_IP="${HOST#*@}" python3 - <<'PY'
+import os, zipfile, pathlib
+HOST_IP = os.environ["HOST_IP"]
 src = pathlib.Path("collector")
 with zipfile.ZipFile("server/static/simdash-collector.zip", "w", zipfile.ZIP_DEFLATED) as z:
     for f in sorted(src.iterdir()):
-        if f.is_file():
+        if f.is_file() and f.name != "simdash.ini":
             z.write(f, f"SimDash/{f.name}")
+    # Server-Adresse gleich vorausfüllen
+    ini = (src / "simdash.ini").read_text().replace("SERVER-IP", HOST_IP)
+    z.writestr("SimDash/simdash.ini", ini)
 PY
 tar czf - --exclude='*.db*' --exclude=__pycache__ server requirements.txt deploy/simdash.service | ssh "$HOST" '
 set -e
