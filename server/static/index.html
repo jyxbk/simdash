@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111418">
+  <title>SimDash</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>SimDash</h1>
+    <span id="status" class="muted"></span>
+  </header>
+
+  <nav class="filters">
+    <select id="f-game"><option value="">Alle Spiele</option></select>
+    <select id="f-track"><option value="">Alle Strecken</option></select>
+    <select id="f-car"><option value="">Alle Autos</option></select>
+  </nav>
+
+  <main>
+    <section>
+      <h2>Bestzeiten</h2>
+      <div id="bests" class="cards"></div>
+    </section>
+
+    <section>
+      <h2>Letzte Runden</h2>
+      <div id="laps"></div>
+    </section>
+  </main>
+
+  <footer class="muted">
+    <a href="/static/simdash-collector.zip">Collector für Windows herunterladen</a>
+  </footer>
+
+  <template id="tpl-empty">
+    <p class="muted empty">Noch keine Runden. Sobald der Collector auf dem PC läuft, erscheinen sie hier.</p>
+  </template>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

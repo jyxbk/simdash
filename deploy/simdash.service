@@ -1,0 +1,14 @@
+[Unit]
+Description=SimDash – Rundenzeiten aller Sims
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=simdash
+WorkingDirectory=/opt/simdash/server
+EnvironmentFile=/etc/simdash.env
+ExecStart=/opt/simdash/.venv/bin/uvicorn app:app --host 0.0.0.0 --port 8080 --proxy-headers
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

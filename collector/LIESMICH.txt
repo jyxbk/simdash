@@ -1,0 +1,33 @@
+SimDash-Collector
+=================
+
+Liest die Rundenzeiten aus AC EVO, iRacing, ACC, AC Rally (experimentell) und
+Assetto Corsa und schickt sie an SimDash: http://SERVER-IP:8080
+
+Einrichtung (einmalig)
+1. Python installieren (falls noch nicht da). In PowerShell:
+     winget install Python.Python.3.12
+2. Diesen Ordner an einen festen Platz legen, z. B. C:\SimDash
+3. simdash.ini öffnen und bei token= den Token eintragen (kommt per Telegram).
+4. start_simdash.bat doppelklicken -> Fenster zeigt "Collector gestartet".
+5. Wenn alles passt: autostart_einrichten.bat doppelklicken. Dann läuft der
+   Collector bei jeder Anmeldung unsichtbar im Hintergrund.
+
+Test im Spiel
+- test_dump.bat starten, ins Auto setzen und losfahren. Einmal pro Sekunde
+  erscheinen Rundenzahl, laufende Zeit, Strecke und Auto.
+  Stimmen Strecke/Auto/Zeit -> passt. Sonst die Ausgabe an Claude schicken.
+
+Wo liegt was?
+- Jede Runde wird zuerst lokal gespeichert:  %LOCALAPPDATA%\SimDash\laps.csv
+- Noch nicht gesendete Runden:              %LOCALAPPDATA%\SimDash\queue.jsonl
+  (werden automatisch nachgeschickt, sobald der Server erreichbar ist)
+- Protokoll:                                %LOCALAPPDATA%\SimDash\collector.log
+
+Hinweise
+- iRacing meldet keine Gültigkeit. Als ungültig gilt eine Runde, wenn alle vier
+  Räder neben der Strecke waren; Incidents stehen als Notiz an der Runde.
+- Assetto Corsa (1) meldet keine Gültigkeit -> "unbekannt".
+- "geschätzt" = der Rundenzähler des Spiels kam nicht (z. B. Verbindungsabbruch);
+  die Zeit stammt aus der laufenden Rundenzeit an der Ziellinie (auf ~20 ms genau).
+- Autostart entfernen: shell:startup öffnen und SimDash-Collector.bat löschen.
