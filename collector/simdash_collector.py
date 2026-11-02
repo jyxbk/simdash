@@ -1092,6 +1092,8 @@ def main() -> None:
     detector = LapDetector()
     active: GameSource | None = None
     last_packet, last_packet_change = None, time.monotonic()
+    announced = None      # zuletzt gemeldetes Spiel – nur Wechsel ins Log
+    idle_logged = False   # "keine neuen Daten" nur einmal melden (EVO-Menü schreibt nichts)
     last_dump = 0.0
     log.info("SimDash-Collector %s gestartet. Daten: %s", VERSION, folder)
 
@@ -1112,20 +1114,27 @@ def main() -> None:
                     if src.available():
                         active = src
                         detector = LapDetector(settle_s=getattr(src, "settle_s", None))
-                        log.info("Spiel erkannt: %s %s", type(src).__name__, src.info())
+                        if announced is not src:
+                            log.info("Spiel erkannt: %s %s", type(src).__name__, src.info())
+                            announced = src
                         last_packet, last_packet_change = None, time.monotonic()
                         break
                 if active is None:
+                    announced = None      # kein Spiel mehr da -> nächstes Mal wieder melden
                     time.sleep(2)
                     continue
 
             snap = active.snapshot()
             if snap.packet_id != last_packet:
+                if last_packet is not None:
+                    idle_logged = False
                 last_packet, last_packet_change = snap.packet_id, time.monotonic()
             elif time.monotonic() - last_packet_change > 5 and snap.status != STATUS_PAUSE:
                 # Keine neuen Daten: Spiel vermutlich zu. Mapping freigeben, damit es verschwinden kann.
                 finish(detector.flush())
-                log.info("Keine Daten mehr von %s – warte auf ein Spiel", snap.game)
+                if not idle_logged:
+                    log.info("Keine neuen Daten von %s (Menü oder beendet) – warte", snap.game)
+                    idle_logged = True
                 active.close()
                 active = None
                 detector = LapDetector()
