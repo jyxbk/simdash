@@ -155,9 +155,10 @@ def add_laps(laps: list[LapIn]) -> dict:
     return {"received": len(laps), "added": added}
 
 
-def _filters(game: str | None, track: str | None, car: str | None) -> tuple[str, list]:
+def _filters(game: str | None, track: str | None, car: str | None,
+             layout: str | None = None) -> tuple[str, list]:
     where, args = [], []
-    for col, val in (("game", game), ("track", track), ("car", car)):
+    for col, val in (("game", game), ("track", track), ("car", car), ("layout", layout)):
         if val:
             where.append(f"{col} = ?")
             args.append(val)
@@ -169,9 +170,10 @@ def list_laps(
     game: str | None = None,
     track: str | None = None,
     car: str | None = None,
-    limit: int = Query(default=100, ge=1, le=2000),
+    layout: str | None = None,
+    limit: int = Query(default=100, ge=1, le=5000),
 ) -> list[dict]:
-    where, args = _filters(game, track, car)
+    where, args = _filters(game, track, car, layout)
     with db() as con:
         rows = con.execute(
             f"SELECT * FROM laps{where} ORDER BY recorded_at DESC, id DESC LIMIT ?",
@@ -206,6 +208,26 @@ def bests(game: str | None = None, track: str | None = None, car: str | None = N
                 "best_any": row_to_lap(best_any) if best_any else None,
             })
     return out
+
+
+@app.get("/api/stats")
+def stats(game: str | None = None, track: str | None = None, car: str | None = None) -> dict:
+    """Kennzahlen für die Kopfzeile."""
+    where, args = _filters(game, track, car)
+    with db() as con:
+        r = con.execute(
+            f"""SELECT COUNT(*) AS laps,
+                       SUM(CASE WHEN COALESCE(valid,1)=1 AND estimated=0 THEN 1 ELSE 0 END) AS valid_laps,
+                       COUNT(DISTINCT game || '|' || track || '|' || layout) AS tracks,
+                       COUNT(DISTINCT car) AS cars,
+                       COUNT(DISTINCT game) AS games,
+                       COUNT(DISTINCT session_uid) AS sessions,
+                       COALESCE(SUM(lap_time_ms), 0) AS drive_ms,
+                       MAX(recorded_at) AS last_lap
+                FROM laps{where}""",
+            args,
+        ).fetchone()
+    return dict(r)
 
 
 @app.get("/api/filters")

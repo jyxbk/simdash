@@ -85,3 +85,14 @@ def test_index_served(client):
 def test_note_is_stored(client):
     client.post("/api/laps", headers=AUTH, json=[lap("aaaaaaaa1", 81000, game="iracing", note="+2x Incidents")])
     assert client.get("/api/laps").json()[0]["note"] == "+2x Incidents"
+
+
+def test_stats_and_layout_filter(client):
+    client.post("/api/laps", headers=AUTH, json=[
+        lap("aaaaaaaa1", 81000, layout="gp"), lap("aaaaaaaa2", 82000, valid=False, layout="gp"),
+        lap("aaaaaaaa3", 90000, layout="short", session_uid="s2"),
+    ])
+    st = client.get("/api/stats").json()
+    assert st["laps"] == 3 and st["valid_laps"] == 2 and st["tracks"] == 2
+    assert st["drive_ms"] == 253000 and st["sessions"] == 2
+    assert len(client.get("/api/laps?layout=gp").json()) == 2

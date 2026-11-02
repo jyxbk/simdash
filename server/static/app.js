@@ -1,60 +1,81 @@
 "use strict";
 
-const $ = (s) => document.querySelector(s);
-const sel = { game: $("#f-game"), track: $("#f-track"), car: $("#f-car") };
+// ---------------------------------------------------------------------------
+// Hilfen
+// ---------------------------------------------------------------------------
+const $ = (sel) => document.querySelector(sel);
+const SVGNS = "http://www.w3.org/2000/svg";
 
 const GAME_NAMES = { acevo: "AC EVO", acc: "ACC", ac: "Assetto Corsa", acrally: "AC Rally", iracing: "iRacing" };
+const GAME_ORDER = ["acevo", "iracing", "acc", "acrally", "ac"];
 const SESSION_NAMES = {
   practice: "Training", qualify: "Qualifying", race: "Rennen", hotlap: "Hotlap",
   time_attack: "Time Attack", hot_stint: "Hot Stint", cruise: "Cruise", superpole: "Superpole",
   time_trial: "Time Trial", testing: "Testfahrt", warmup: "Warm-up",
 };
 
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+/** DOM bauen; Strings werden immer als Text eingefügt (Spieldaten sind nicht vertrauenswürdig). */
+function h(tag, attrs = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) {
+    if (kid == null || kid === false) continue;
+    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
 }
 
-// Interne IDs wie "road_atlanta" oder "ks_porsche_911_gt3_r" lesbar machen.
+function s(tag, attrs = {}) {
+  const el = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+const UPPER = new Set(["bmw", "amg", "gt", "gtr", "gte", "lmp", "lmh", "lmdh", "ks", "gp"]);
 function pretty(id) {
   if (!id) return "";
-  const upper = new Set(["bmw", "amg", "gt", "gtr", "gte", "lmp", "lmh", "lmdh", "ks"]);
-  return String(id).replace(/^ks_/, "").replace(/[_-]+/g, " ")
-    .split(" ").map((w) => (/\d/.test(w) || upper.has(w.toLowerCase())) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1))
+  if (/[A-Z ]/.test(id)) return String(id);   // schon ein Anzeigename (iRacing, AC EVO)
+  return String(id).replace(/^ks_/, "").replace(/[_-]+/g, " ").split(" ")
+    .map((w) => (/\d/.test(w) || UPPER.has(w.toLowerCase())) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
 }
-
-function trackName(lap) {
-  return pretty(lap.track) + (lap.layout ? ` · ${pretty(lap.layout)}` : "");
-}
+const trackName = (x) => pretty(x.track) + (x.layout ? ` · ${pretty(x.layout)}` : "");
+const gameName = (g) => GAME_NAMES[g] || g;
 
 function fmt(ms) {
   if (ms == null) return "–";
-  const m = Math.floor(ms / 60000);
-  const s = Math.floor((ms % 60000) / 1000);
-  const r = ms % 1000;
-  return `${m}:${String(s).padStart(2, "0")}.${String(r).padStart(3, "0")}`;
+  const m = Math.floor(ms / 60000), sec = Math.floor((ms % 60000) / 1000), r = ms % 1000;
+  return `${m}:${String(sec).padStart(2, "0")}.${String(r).padStart(3, "0")}`;
 }
+const fmtDelta = (ms) => `${ms < 0 ? "−" : "+"}${(Math.abs(ms) / 1000).toFixed(3)}`;
 
 function fmtDate(iso) {
-  const d = new Date(iso);
-  return d.toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-function badges(lap) {
-  const b = [];
-  if (lap.valid === false) b.push('<span class="badge bad">ungültig</span>');
-  if (lap.estimated) b.push('<span class="badge warn" title="Aus der laufenden Zeit geschätzt (Rundenzähler fehlte, z. B. Verbindungsabbruch)">geschätzt</span>');
-  if (lap.outlap) b.push('<span class="badge">Outlap</span>');
-  if (lap.inlap) b.push('<span class="badge">Inlap</span>');
-  if (lap.note) b.push(`<span class="badge" title="${esc(lap.note)}">📝</span>`);
-  return b.join("");
+function ago(iso) {
+  const min = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (min < 1) return "gerade eben";
+  if (min < 60) return `vor ${min} min`;
+  const hours = Math.round(min / 60);
+  if (hours < 24) return `vor ${hours} h`;
+  const d = Math.round(hours / 24);
+  return d === 1 ? "gestern" : `vor ${d} Tagen`;
 }
 
-function params() {
-  const p = new URLSearchParams();
-  for (const [k, el] of Object.entries(sel)) if (el.value) p.set(k, el.value);
-  return p;
+function fmtDuration(ms) {
+  const min = Math.round(ms / 60000);
+  return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")}`;
 }
+
+const comboKey = (x) => [x.game, x.track, x.layout, x.car].join("␟");
+const isCounting = (l) => l.valid !== false && !l.estimated;   // zählt für die Bestzeit
+const comboQuery = (c) => new URLSearchParams({ game: c.game, track: c.track, layout: c.layout, car: c.car, limit: 5000 });
 
 async function getJSON(url) {
   const r = await fetch(url);
@@ -62,73 +83,393 @@ async function getJSON(url) {
   return r.json();
 }
 
-function fillSelect(el, values, label) {
-  const cur = el.value;
-  el.innerHTML = `<option value="">${label}</option>` +
-    values.map((v) => `<option value="${esc(v)}">${esc(el === sel.game ? (GAME_NAMES[v] || v) : pretty(v))}</option>`).join("");
-  if (values.includes(cur)) el.value = cur;
+// ---------------------------------------------------------------------------
+// Zustand
+// ---------------------------------------------------------------------------
+const state = { game: "", track: "", car: "", selected: null, laps: [], bests: [], detail: null, sessionsShown: 5 };
+
+function query(extra = {}) {
+  const p = new URLSearchParams();
+  for (const k of ["game", "track", "car"]) if (state[k]) p.set(k, state[k]);
+  for (const [k, v] of Object.entries(extra)) if (v != null) p.set(k, v);
+  return p.toString();
 }
 
-function renderBests(list) {
-  const box = $("#bests");
-  if (!list.length) { box.replaceChildren($("#tpl-empty").content.cloneNode(true)); return; }
-  box.innerHTML = list.map((c) => {
-    const v = c.best_valid, a = c.best_any;
-    const showAlt = a && (!v || a.id !== v.id);
-    return `<div class="card">
-      <div class="combo">${esc(trackName(c))}</div>
-      <div class="sub">${esc(pretty(c.car))} · ${esc(GAME_NAMES[c.game] || c.game)}</div>
-      <div class="time">${v ? fmt(v.lap_time_ms) : "–"}</div>
-      <div class="alt">${v ? fmtDate(v.recorded_at) : "keine gültige Runde"}${showAlt ? ` · schnellste insg. ${fmt(a.lap_time_ms)}${badges(a)}` : ""}</div>
-      <div class="alt">${c.laps} ${c.laps === 1 ? "Runde" : "Runden"} · zuletzt ${fmtDate(c.last_driven)}</div>
-    </div>`;
-  }).join("");
-}
-
-function renderLaps(laps, bests) {
-  const box = $("#laps");
-  if (!laps.length) { box.replaceChildren($("#tpl-empty").content.cloneNode(true)); return; }
-  const pbIds = new Set(bests.map((c) => c.best_valid && c.best_valid.id).filter(Boolean));
-  let html = `<table><thead><tr><th>Zeit</th><th>Runde</th><th class="hide-sm">Strecke / Auto</th><th class="hide-sm">Wann</th></tr></thead><tbody>`;
-  let lastSession = null;
-  for (const lap of laps) {
-    if (lap.session_uid !== lastSession) {
-      lastSession = lap.session_uid;
-      const st = SESSION_NAMES[lap.session_type] || lap.session_type || "Session";
-      html += `<tr class="session-head"><td colspan="4">${esc(GAME_NAMES[lap.game] || lap.game)} · ${esc(trackName(lap))} · ${esc(pretty(lap.car))} · ${esc(st)}${lap.online ? " · online" : ""} · ${fmtDate(lap.recorded_at)}</td></tr>`;
+// ---------------------------------------------------------------------------
+// Auswertung
+// ---------------------------------------------------------------------------
+/** Runden, die für ihre Kombination eine neue Bestzeit gesetzt haben (chronologisch). */
+function pbEvents(laps) {
+  const chrono = [...laps].sort((a, b) => a.recorded_at.localeCompare(b.recorded_at));
+  const best = new Map();
+  const events = [];
+  for (const l of chrono) {
+    if (!isCounting(l)) continue;
+    const k = comboKey(l);
+    const prev = best.get(k);
+    if (prev == null || l.lap_time_ms < prev) {
+      events.push({ lap: l, prev });
+      best.set(k, l.lap_time_ms);
     }
-    const cls = [pbIds.has(lap.id) ? "pb" : "", lap.valid === false ? "invalid" : ""].join(" ");
-    html += `<tr class="${cls}">
-      <td class="t">${fmt(lap.lap_time_ms)}</td>
-      <td>${lap.lap_number ?? ""}${badges(lap)}${pbIds.has(lap.id) ? '<span class="badge good">PB</span>' : ""}</td>
-      <td class="hide-sm">${esc(trackName(lap))}<br><span class="muted">${esc(pretty(lap.car))}</span></td>
-      <td class="hide-sm muted">${fmtDate(lap.recorded_at)}</td>
-    </tr>`;
   }
-  box.innerHTML = html + "</tbody></table>";
+  return events;
 }
 
+function groupSessions(laps) {
+  const map = new Map();
+  for (const l of laps) {
+    const k = l.session_uid || comboKey(l);
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(l);
+  }
+  return [...map.values()]
+    .map((ls) => ls.sort((a, b) => (a.lap_number ?? 0) - (b.lap_number ?? 0) || a.recorded_at.localeCompare(b.recorded_at)))
+    .sort((a, b) => b[b.length - 1].recorded_at.localeCompare(a[a.length - 1].recorded_at));
+}
+
+// ---------------------------------------------------------------------------
+// Darstellung
+// ---------------------------------------------------------------------------
+function renderStatus(stats) {
+  const box = $("#status");
+  box.replaceChildren();
+  if (!stats.last_lap) return;
+  const live = Date.now() - new Date(stats.last_lap) < 15 * 60000;
+  box.append(h("span", { class: `dot${live ? " live" : ""}` }), `letzte Runde ${ago(stats.last_lap)}`);
+}
+
+function renderChips(games) {
+  const list = ["", ...GAME_ORDER.filter((g) => games.includes(g)), ...games.filter((g) => !GAME_ORDER.includes(g))];
+  $("#game-chips").replaceChildren(...list.map((g) => h("button", {
+    class: "chip", type: "button", "aria-pressed": String(state.game === g),
+    onclick: () => { Object.assign(state, { game: g, track: "", car: "", selected: null }); $("#detail").hidden = true; load(); },
+  }, g ? gameName(g) : "Alle")));
+}
+
+function fillSelect(el, values, label, key) {
+  el.replaceChildren(h("option", { value: "" }, label), ...values.map((v) => h("option", { value: v }, pretty(v))));
+  el.value = values.includes(state[key]) ? state[key] : "";
+}
+
+function renderHero(laps) {
+  const box = $("#hero");
+  const events = pbEvents(laps);
+  const ev = events[events.length - 1];
+  if (!ev) {
+    box.replaceChildren($("#tpl-empty").content.cloneNode(true));
+    return;
+  }
+  const l = ev.lap;
+  const history = events.slice(-6, -1).reverse();
+  box.replaceChildren(h("div", { class: "hero-main" },
+    h("div", { class: "label" }, "Neueste Bestzeit"),
+    h("div", { class: "value" }, fmt(l.lap_time_ms)),
+    h("div", { class: "what" }, trackName(l)),
+    h("div", { class: "sub" }, `${pretty(l.car)} · ${gameName(l.game)} · ${fmtDate(l.recorded_at)}`),
+    h("div", { class: "delta" },
+      ev.prev != null
+        ? [h("span", { class: "delta-good" }, `▲ ${fmtDelta(l.lap_time_ms - ev.prev)} s`), ` schneller als die alte Bestzeit ${fmt(ev.prev)}`]
+        : "Erste gültige Runde mit diesem Auto auf dieser Strecke"),
+  ), history.length ? h("div", { class: "hero-side" },
+    h("div", { class: "label" }, "Davor"),
+    h("ol", { class: "pb-list" }, history.map((e) => h("li", {},
+      h("span", { class: "t" }, fmt(e.lap.lap_time_ms)),
+      h("span", { class: "w" }, `${trackName(e.lap)} · ${pretty(e.lap.car)}`),
+      h("span", { class: "d" }, e.prev != null ? h("span", { class: "delta-good" }, `▲ ${fmtDelta(e.lap.lap_time_ms - e.prev)}`) : "erste"),
+    )))) : null);
+}
+
+function renderTiles(st) {
+  const tile = (label, value, sub) => h("div", { class: "tile" },
+    h("div", { class: "label" }, label), h("div", { class: "value" }, value), sub ? h("div", { class: "sub" }, sub) : null);
+  $("#tiles").replaceChildren(
+    tile("Runden", st.laps.toLocaleString("de-DE"), `${st.valid_laps ?? 0} gültig`),
+    tile("Strecken", st.tracks, `${st.sessions} Sessions`),
+    tile("Autos", st.cars, `in ${st.games} ${st.games === 1 ? "Spiel" : "Spielen"}`),
+    tile("Fahrzeit", fmtDuration(st.drive_ms), "auf der Strecke"),
+  );
+}
+
+/** Mini-Verlauf der gültigen Runden; eine Serie, daher ohne Legende. Bestzeit = grüner Punkt. */
+function sparkline(laps) {
+  const pts = laps.filter(isCounting).sort((a, b) => a.recorded_at.localeCompare(b.recorded_at)).slice(-24);
+  const svg = s("svg", { class: "spark", viewBox: "0 0 300 38", preserveAspectRatio: "none", "aria-hidden": "true" });
+  if (pts.length < 2) return h("div", { class: "spark-empty" }, "Verlauf ab 2 gültigen Runden");
+  const ys = pts.map((l) => l.lap_time_ms);
+  const min = Math.min(...ys), max = Math.max(...ys), span = Math.max(max - min, 1);
+  const x = (i) => 6 + (i / (pts.length - 1)) * 288;
+  const y = (v) => 6 + ((v - min) / span) * 26;           // oben = schneller
+  const d = pts.map((l, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(l.lap_time_ms).toFixed(1)}`).join("");
+  svg.append(s("path", { d, fill: "none", stroke: "var(--series-1)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round", "vector-effect": "non-scaling-stroke" }));
+  return svg;
+}
+
+function renderBests(bests, laps) {
+  const box = $("#bests");
+  if (!bests.length) { box.replaceChildren(); return; }
+  const byCombo = new Map();
+  for (const l of laps) {
+    const k = comboKey(l);
+    if (!byCombo.has(k)) byCombo.set(k, []);
+    byCombo.get(k).push(l);
+  }
+  box.replaceChildren(...bests.map((c) => {
+    const v = c.best_valid;
+    const key = comboKey(c);
+    return h("button", {
+      class: "card", type: "button", "aria-current": String(state.selected === key),
+      "aria-label": `${trackName(c)}, ${pretty(c.car)}, Bestzeit ${v ? fmt(v.lap_time_ms) : "keine"}. Details öffnen`,
+      onclick: () => openDetail(c),
+    },
+      h("div", { class: "card-top" },
+        h("div", {}, h("div", { class: "track" }, trackName(c)), h("div", { class: "car" }, pretty(c.car))),
+        h("span", { class: "game" }, gameName(c.game))),
+      h("div", { class: "time" }, v ? fmt(v.lap_time_ms) : "–:––.–––"),
+      sparkline(byCombo.get(key) || []),
+      h("div", { class: "meta" },
+        h("span", {}, `${c.laps} ${c.laps === 1 ? "Runde" : "Runden"}`),
+        h("span", {}, v ? `Bestzeit ${fmtDate(v.recorded_at)}` : "noch keine gültige Runde")),
+    );
+  }));
+}
+
+function lapBadges(l, pbId) {
+  return [
+    l.id === pbId ? h("span", { class: "badge pb" }, "★ PB") : null,
+    l.valid === false ? h("span", { class: "badge bad" }, "✕ ungültig") : null,
+    l.estimated ? h("span", { class: "badge warn", title: "Zeit aus der laufenden Uhr an der Ziellinie (Rundenzähler fehlte)" }, "≈ geschätzt") : null,
+    l.outlap ? h("span", { class: "badge" }, "Outlap") : null,
+    l.inlap ? h("span", { class: "badge" }, "Inlap") : null,
+  ];
+}
+
+function renderSessions(laps, bests) {
+  const box = $("#sessions");
+  const pbByCombo = new Map(bests.map((c) => [comboKey(c), c.best_valid]));
+  const sessions = groupSessions(laps);
+  if (!sessions.length) { box.replaceChildren(); return; }
+  const shown = sessions.slice(0, state.sessionsShown);
+  box.replaceChildren(...shown.map((ls) => {
+    const first = ls[0], last = ls[ls.length - 1];
+    const pb = pbByCombo.get(comboKey(first));
+    const counting = ls.filter(isCounting);
+    const sBest = counting.length ? Math.min(...counting.map((l) => l.lap_time_ms)) : null;
+    const rows = ls.map((l) => h("tr", { class: l.valid === false ? "invalid" : "" },
+      h("td", { class: "lapno num" }, l.lap_number ?? ""),
+      h("td", { class: "t num" }, fmt(l.lap_time_ms)),
+      h("td", { class: "delta num hide-sm" },
+        pb && isCounting(l) ? (l.id === pb.id ? "" : fmtDelta(l.lap_time_ms - pb.lap_time_ms)) : ""),
+      h("td", {}, lapBadges(l, pb && pb.id), l.note ? h("span", { class: "note" }, ` ${l.note}`) : null),
+    ));
+    return h("article", { class: "session" },
+      h("div", { class: "session-head" },
+        h("div", {},
+          h("div", { class: "what" }, trackName(first), " ", h("span", { class: "car" }, `· ${pretty(first.car)}`)),
+          h("div", { class: "info" },
+            `${gameName(first.game)} · ${SESSION_NAMES[first.session_type] || first.session_type || "Session"}${first.online ? " · online" : ""} · ${fmtDate(last.recorded_at)} · ${ls.length} ${ls.length === 1 ? "Runde" : "Runden"}`)),
+        h("div", { class: "session-best" }, "Beste Runde ", h("b", {}, sBest ? fmt(sBest) : "–"))),
+      h("table", {},
+        h("thead", {}, h("tr", {},
+          h("th", { class: "num lapno" }, "#"), h("th", { class: "num tcol" }, "Zeit"),
+          h("th", { class: "num dcol hide-sm" }, "zur PB"), h("th", {}, ""))),
+        h("tbody", {}, rows)),
+    );
+  }));
+  if (sessions.length > shown.length) {
+    box.append(h("button", {
+      class: "more", type: "button",
+      onclick: () => { state.sessionsShown += 5; renderSessions(state.laps, state.bests); },
+    }, `Weitere Sessions anzeigen (${sessions.length - shown.length})`));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Detail: Rundenzeiten-Diagramm (eine Serie, Crosshair + Tooltip, Tabelle)
+// ---------------------------------------------------------------------------
+async function openDetail(c) {
+  state.selected = comboKey(c);
+  const sec = $("#detail");
+  sec.hidden = false;
+  $("#detail-title").replaceChildren(trackName(c), " ", h("span", { class: "car" }, `· ${pretty(c.car)} · ${gameName(c.game)}`));
+  renderLegend();
+  await refreshDetail(c);
+  sec.scrollIntoView({ behavior: "smooth", block: "start" });
+  renderBests(state.bests, state.laps);
+}
+
+async function refreshDetail(c) {
+  const laps = (await getJSON(`/api/laps?${comboQuery(c)}`)).sort((a, b) => a.recorded_at.localeCompare(b.recorded_at));
+  state.detail = { laps, pb: c.best_valid };
+  drawChart(laps, c.best_valid);
+  renderDetailTable(laps, c.best_valid);
+}
+
+function renderLegend() {
+  const line = () => { const v = s("svg", { width: 18, height: 10 }); v.append(s("line", { x1: 1, y1: 5, x2: 17, y2: 5, stroke: "var(--series-1)", "stroke-width": 2, "stroke-linecap": "round" })); return v; };
+  const dot = (attrs) => { const v = s("svg", { width: 12, height: 12 }); v.append(s("circle", { cx: 6, cy: 6, r: 4, ...attrs })); return v; };
+  $("#detail-legend").replaceChildren(
+    h("span", { class: "key" }, line(), "gültige Runden"),
+    h("span", { class: "key" }, dot({ fill: "var(--good)" }), "★ Bestzeit"),
+    h("span", { class: "key" }, dot({ fill: "var(--surface-1)", stroke: "var(--text-muted)", "stroke-width": 1.5 }), "ungültig / geschätzt"),
+  );
+}
+
+function drawChart(laps, pb) {
+  const box = $("#chart");
+  box.replaceChildren();
+  if (!laps.length) return;
+  const W = box.clientWidth || 600, H = box.clientHeight || 260;
+  const m = { l: 58, r: 14, t: 18, b: 26 };
+  const counting = laps.filter(isCounting);
+  const ys = (counting.length ? counting : laps).map((l) => l.lap_time_ms).sort((a, b) => a - b);
+  // Ausreißer (Dreher, Boxenrunden) bestimmen nicht die Skala; sie sitzen am unteren Rand
+  const lo = ys[0], hi = ys[Math.min(ys.length - 1, Math.floor(ys.length * 0.9))];
+  const pad = Math.max((hi - lo) * 0.15, 250);
+  const yMin = lo - pad, yMax = hi + pad;
+  const n = laps.length;
+  const x = (i) => m.l + (n === 1 ? (W - m.l - m.r) / 2 : (i / (n - 1)) * (W - m.l - m.r));
+  const y = (v) => m.t + ((Math.min(Math.max(v, yMin), yMax) - yMin) / (yMax - yMin)) * (H - m.t - m.b);
+
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, "aria-hidden": "true" });
+  box.setAttribute("aria-label", `Rundenzeiten: ${n} Runden, Bestzeit ${pb ? fmt(pb.lap_time_ms) : "keine"}. Werte auch in der Tabelle.`);
+
+  // Raster und Achse – schneller ist oben
+  const grid = s("g", { class: "grid" }), axis = s("g", { class: "axis" });
+  // runde Schrittweite (0,1 s, 0,25 s, 0,5 s, 1 s …), etwa 4–6 Linien
+  const steps = [100, 200, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000];
+  const step = steps.find((st) => (yMax - yMin) / st <= 6) || 60000;
+  const decimals = step < 1000 ? (step % 100 ? 2 : 1) : 0;
+  for (let v = Math.ceil(yMin / step) * step; v <= yMax; v += step) {
+    const yy = y(v);
+    grid.append(s("line", { x1: m.l, x2: W - m.r, y1: yy, y2: yy }));
+    const t = s("text", { x: m.l - 8, y: yy + 4, "text-anchor": "end" });
+    t.textContent = fmt(v).slice(0, decimals ? -(3 - decimals) : -4);
+    axis.append(t);
+  }
+  const note = s("text", { x: m.l, y: H - 6 });
+  note.textContent = "Runden nacheinander →     oben = schneller";
+  axis.append(note);
+  svg.append(grid, axis, s("line", { class: "baseline", x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b }));
+
+  if (pb) {
+    const py = y(pb.lap_time_ms);
+    svg.append(s("line", { class: "pbline", x1: m.l, x2: W - m.r, y1: py, y2: py }));
+    const t = s("text", { class: "pblabel", x: W - m.r, y: py - 7, "text-anchor": "end" });
+    t.textContent = `★ PB ${fmt(pb.lap_time_ms)}`;
+    svg.append(t);
+  }
+
+  const idx = laps.map((l, i) => [l, i]);
+  const path = idx.filter(([l]) => isCounting(l)).map(([l, i], k) => `${k ? "L" : "M"}${x(i).toFixed(1)},${y(l.lap_time_ms).toFixed(1)}`).join("");
+  if (path) svg.append(s("path", { class: "line", d: path }));
+  for (const [l, i] of idx) {
+    const isPb = pb && l.id === pb.id;
+    svg.append(s("circle", { class: !isCounting(l) ? "dot invalid" : isPb ? "dot pb" : "dot", cx: x(i), cy: y(l.lap_time_ms), r: isPb ? 6 : 4 }));
+  }
+
+  // Crosshair + Tooltip: rastet auf die nächste Runde ein; Tastatur mit ← →
+  const cross = s("line", { class: "crosshair", y1: m.t, y2: H - m.b, visibility: "hidden" });
+  const ring = s("circle", { r: 8, fill: "none", stroke: "var(--text-primary)", "stroke-width": 2, visibility: "hidden" });
+  const hit = s("rect", { x: m.l - 12, y: 0, width: W - m.l - m.r + 24, height: H, fill: "transparent", tabindex: 0, "aria-label": "Runden mit Pfeiltasten durchgehen" });
+  svg.append(cross, ring, hit);
+  box.append(svg);
+
+  const tip = $("#tooltip");
+  let cur = n - 1;
+  const show = (i, clientX, clientY) => {
+    cur = i;
+    const l = laps[i], cx = x(i), cy = y(l.lap_time_ms);
+    for (const [el, a, v] of [[cross, "x1", cx], [cross, "x2", cx], [ring, "cx", cx], [ring, "cy", cy]]) el.setAttribute(a, v);
+    cross.setAttribute("visibility", "visible"); ring.setAttribute("visibility", "visible");
+    tip.replaceChildren(...[
+      h("div", { class: "v" }, fmt(l.lap_time_ms)),
+      h("div", { class: "k" }, h("i"), `Runde ${l.lap_number ?? "?"} · ${fmtDate(l.recorded_at)}`),
+      pb && isCounting(l) && l.id !== pb.id ? h("div", { class: "k" }, `${fmtDelta(l.lap_time_ms - pb.lap_time_ms)} s zur PB`) : null,
+      h("div", {}, lapBadges(l, pb && pb.id)),
+      l.note ? h("div", { class: "k" }, l.note) : null,
+    ].filter(Boolean));
+    tip.hidden = false;
+    const r = box.getBoundingClientRect();
+    const px = clientX ?? r.left + (cx / W) * r.width, py = clientY ?? r.top + (cy / H) * r.height;
+    tip.style.left = `${Math.min(Math.max(8, px + 14), window.innerWidth - tip.offsetWidth - 8)}px`;
+    tip.style.top = `${Math.max(8, py - tip.offsetHeight - 14)}px`;
+  };
+  const hide = () => { tip.hidden = true; cross.setAttribute("visibility", "hidden"); ring.setAttribute("visibility", "hidden"); };
+  const nearest = (clientX) => {
+    const r = box.getBoundingClientRect();
+    const sx = ((clientX - r.left) / r.width) * W;
+    let best = 0, bd = Infinity;
+    laps.forEach((_, i) => { const d = Math.abs(x(i) - sx); if (d < bd) { bd = d; best = i; } });
+    return best;
+  };
+  hit.addEventListener("pointermove", (e) => show(nearest(e.clientX), e.clientX, e.clientY));
+  hit.addEventListener("pointerdown", (e) => show(nearest(e.clientX), e.clientX, e.clientY));
+  hit.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") hide(); });
+  hit.addEventListener("focus", () => show(cur));
+  hit.addEventListener("blur", hide);
+  hit.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowLeft") { show(Math.max(0, cur - 1)); e.preventDefault(); }
+    if (e.key === "ArrowRight") { show(Math.min(n - 1, cur + 1)); e.preventDefault(); }
+    if (e.key === "Escape") hide();
+  });
+}
+
+function renderDetailTable(laps, pb) {
+  const rows = [...laps].reverse().map((l) => h("tr", { class: l.valid === false ? "invalid" : "" },
+    h("td", {}, fmtDate(l.recorded_at)),
+    h("td", { class: "num" }, l.lap_number ?? ""),
+    h("td", { class: "t num" }, fmt(l.lap_time_ms)),
+    h("td", { class: "num hide-sm" }, pb && isCounting(l) && l.id !== pb.id ? fmtDelta(l.lap_time_ms - pb.lap_time_ms) : ""),
+    h("td", {}, lapBadges(l, pb && pb.id), l.note ? h("span", { class: "note" }, ` ${l.note}`) : null),
+  ));
+  $("#detail-table").replaceChildren(h("table", {},
+    h("thead", {}, h("tr", {}, h("th", {}, "Wann"), h("th", { class: "num" }, "#"), h("th", { class: "num" }, "Zeit"), h("th", { class: "num hide-sm" }, "zur PB"), h("th", {}, ""))),
+    h("tbody", {}, rows)));
+}
+
+// ---------------------------------------------------------------------------
+// Laden
+// ---------------------------------------------------------------------------
 async function load() {
+  document.body.classList.add("loading");
   try {
-    const p = params();
-    const [f, b, l] = await Promise.all([
-      getJSON("/api/filters"),
-      getJSON(`/api/bests?${p}`),
-      getJSON(`/api/laps?limit=200&${p}`),
+    const q = query();
+    const [f, st, bests, laps] = await Promise.all([
+      getJSON("/api/filters"), getJSON(`/api/stats?${q}`), getJSON(`/api/bests?${q}`), getJSON(`/api/laps?${query({ limit: 2000 })}`),
     ]);
-    fillSelect(sel.game, f.games, "Alle Spiele");
-    fillSelect(sel.track, f.tracks, "Alle Strecken");
-    fillSelect(sel.car, f.cars, "Alle Autos");
-    renderBests(b);
-    renderLaps(l, b);
-    $("#status").textContent = `${f.total} Runden · aktualisiert ${new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}`;
+    Object.assign(state, { bests, laps });
+    renderChips(f.games);
+    fillSelect($("#f-track"), f.tracks, "Alle Strecken", "track");
+    fillSelect($("#f-car"), f.cars, "Alle Autos", "car");
+    renderStatus(st);
+    renderHero(laps);
+    renderTiles(st);
+    renderBests(bests, laps);
+    renderSessions(laps, bests);
+    if (state.selected) {
+      const c = bests.find((b) => comboKey(b) === state.selected);
+      if (c) await refreshDetail(c);
+      else { $("#detail").hidden = true; state.selected = null; }
+    }
   } catch (e) {
     $("#status").textContent = "Server nicht erreichbar";
     console.error(e);
+  } finally {
+    document.body.classList.remove("loading");
   }
 }
 
-for (const el of Object.values(sel)) el.addEventListener("change", load);
+$("#f-track").addEventListener("change", (e) => { state.track = e.target.value; load(); });
+$("#f-car").addEventListener("change", (e) => { state.car = e.target.value; load(); });
+$("#detail-close").addEventListener("click", () => {
+  $("#detail").hidden = true; state.selected = null; $("#tooltip").hidden = true; renderBests(state.bests, state.laps);
+});
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (state.detail && !$("#detail").hidden) drawChart(state.detail.laps, state.detail.pb); }, 150);
+});
+
 load();
-setInterval(() => { if (!document.hidden) load(); }, 15000);
+setInterval(() => { if (!document.hidden && $("#tooltip").hidden) load(); }, 15000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
