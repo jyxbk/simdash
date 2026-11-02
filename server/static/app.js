@@ -302,6 +302,12 @@ async function refreshDetail(c) {
   state.detail = { laps, pb: c.best_valid };
   drawChart(laps, c.best_valid);
   renderDetailTable(laps, c.best_valid);
+  const keepSel = analysis.c && comboKey(analysis.c) === comboKey(c) ? [$("#pick-lap").value, $("#pick-ref").value] : null;
+  await loadAnalysis(c);
+  if (keepSel && analysis.traced.some((l) => String(l.id) === keepSel[0]) && analysis.traced.some((l) => String(l.id) === keepSel[1])) {
+    [$("#pick-lap").value, $("#pick-ref").value] = keepSel;
+    renderAnalysis();
+  }
 }
 
 function renderLegend() {
@@ -467,9 +473,308 @@ $("#detail-close").addEventListener("click", () => {
 let resizeTimer;
 window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { if (state.detail && !$("#detail").hidden) drawChart(state.detail.laps, state.detail.pb); }, 150);
+  resizeTimer = setTimeout(() => {
+    if (state.detail && !$("#detail").hidden) { drawChart(state.detail.laps, state.detail.pb); if (analysis.traced.length) renderAnalysis(); }
+  }, 150);
 });
 
 load();
 setInterval(() => { if (!document.hidden && $("#tooltip").hidden) load(); }, 15000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+
+// ---------------------------------------------------------------------------
+// Analyse: wo Zeit gewonnen/verloren wird (braucht Runden mit Verlauf, Collector ≥ 0.2)
+// ---------------------------------------------------------------------------
+const SECTORS = 10;
+const analysis = { c: null, traced: [], charts: [] };
+
+function lapLabel(l, pbId) {
+  const flags = [l.id === pbId ? "★ PB" : "", l.valid === false ? "✕" : "", l.estimated ? "≈" : ""].filter(Boolean).join(" ");
+  return `R${l.lap_number ?? "?"} · ${fmt(l.lap_time_ms)} · ${fmtDate(l.recorded_at)}${flags ? " · " + flags : ""}`;
+}
+
+/** Zeit je Mini-Sektor (ms) aus dem Verlauf; null, wenn der Abschnitt nicht abgedeckt ist. */
+function sectorTimes(l) {
+  const t = l.trace.t, per = Math.round(t.length / SECTORS);
+  const out = [];
+  for (let k = 0; k < SECTORS; k++) {
+    const start = k === 0 ? (t[0] != null ? 0 : null) : t[k * per];
+    const end = k === SECTORS - 1 ? l.lap_time_ms : t[(k + 1) * per];
+    out.push(start != null && end != null && end > start ? end - start : null);
+  }
+  return out;
+}
+
+function idealLap(traced) {
+  const best = Array(SECTORS).fill(null);
+  for (const l of traced.filter(isCounting)) {
+    sectorTimes(l).forEach((v, k) => { if (v != null && (best[k] == null || v < best[k])) best[k] = v; });
+  }
+  return best.every((v) => v != null) ? best.reduce((a, b) => a + b, 0) : null;
+}
+
+async function loadAnalysis(c) {
+  analysis.c = c;
+  const traced = await getJSON(`/api/traces?${new URLSearchParams({ game: c.game, track: c.track, layout: c.layout, car: c.car })}`);
+  analysis.traced = traced;
+  const pbId = c.best_valid && c.best_valid.id;
+  const pickers = document.querySelector("#analysis .pickers");
+  if (!traced.length) {
+    pickers.hidden = true;
+    $("#analysis-sub").textContent = "";
+    $("#analysis-body").replaceChildren(h("p", { class: "analysis-empty" },
+      "Für dieses Auto auf dieser Strecke gibt es noch keine Runden mit Verlauf. Ab Collector 0.2 zeichnet SimDash bei jeder Runde Zeit, Tempo und Pedale entlang der Strecke auf – fahr ein paar Runden, dann erscheint hier die Analyse."));
+    return;
+  }
+  pickers.hidden = false;
+  const counting = traced.filter(isCounting);
+  const byTime = [...counting].sort((a, b) => a.lap_time_ms - b.lap_time_ms);
+  const sel = counting[0] || traced[0];                       // neueste gültige Runde
+  const ref = byTime.find((l) => l.id !== sel.id) || byTime[0] || sel;   // schnellste andere
+  for (const [el, cur] of [[$("#pick-lap"), sel], [$("#pick-ref"), ref]]) {
+    el.replaceChildren(...traced.map((l) => h("option", { value: l.id }, lapLabel(l, pbId))));
+    el.value = String(cur.id);
+  }
+  renderAnalysis();
+}
+
+function renderAnalysis() {
+  const traced = analysis.traced;
+  const sel = traced.find((l) => String(l.id) === $("#pick-lap").value);
+  const ref = traced.find((l) => String(l.id) === $("#pick-ref").value);
+  const body = $("#analysis-body");
+  analysis.charts = [];
+  if (!sel || !ref) return;
+  const pbId = analysis.c.best_valid && analysis.c.best_valid.id;
+  const refDat = ref.id === pbId ? "deiner Bestzeit" : `Runde ${ref.lap_number}`;   // "im Vergleich zu …"
+  const refAkk = ref.id === pbId ? "deine Bestzeit" : `Runde ${ref.lap_number}`;    // "gegen …"
+  $("#analysis-sub").textContent = sel.id === ref.id
+    ? "Wähle eine zweite Runde zum Vergleich."
+    : `Runde ${sel.lap_number} (${fmt(sel.lap_time_ms)}) im Vergleich zu ${refDat} (${fmt(ref.lap_time_ms)})`;
+
+  const sT = sectorTimes(sel), rT = sectorTimes(ref);
+  const sd = sT.map((v, k) => (v != null && rT[k] != null ? v - rT[k] : null));
+  const known = sd.map((v, k) => [v, k]).filter(([v]) => v != null);
+  const worst = known.reduce((a, b) => (b[0] > a[0] ? b : a), [0, -1]);
+  const bestG = known.reduce((a, b) => (b[0] < a[0] ? b : a), [0, -1]);
+  const ideal = idealLap(traced);
+  const pbTime = analysis.c.best_valid && analysis.c.best_valid.lap_time_ms;
+  const range = (k) => `${k * 10}–${(k + 1) * 10} % der Runde`;
+  const ins = (label, value, sub, mark) => h("div", { class: "insight" },
+    h("div", { class: "label" }, mark ? h("span", { class: mark }) : null, label), h("div", { class: "value" }, value), h("div", { class: "sub" }, sub));
+
+  const tiles = h("div", { class: "insights" },
+    ins("Abstand gesamt", sel.id === ref.id ? "–" : `${fmtDelta(sel.lap_time_ms - ref.lap_time_ms)} s`, `gegen ${refAkk}`),
+    ins("Größter Verlust", worst[1] >= 0 && worst[0] > 0 ? `+${(worst[0] / 1000).toFixed(3)} s` : "–", worst[1] >= 0 && worst[0] > 0 ? `Abschnitt ${worst[1] + 1} · ${range(worst[1])}` : "nirgends langsamer", "mark-loss"),
+    ins("Größter Gewinn", bestG[1] >= 0 && bestG[0] < 0 ? `−${(-bestG[0] / 1000).toFixed(3)} s` : "–", bestG[1] >= 0 && bestG[0] < 0 ? `Abschnitt ${bestG[1] + 1} · ${range(bestG[1])}` : "nirgends schneller", "mark-gain"),
+    ins("Ideale Runde", ideal ? fmt(ideal) : "–", ideal && pbTime ? `Potenzial ${fmtDelta(ideal - pbTime)} s zur PB` : "beste Abschnitte aller Runden"),
+  );
+
+  const kids = [tiles];
+
+  // 1) Delta über die Runde
+  const n = sel.trace.t.length;
+  const delta = sel.trace.t.map((v, i) => (v != null && ref.trace.t[i] != null ? v - ref.trace.t[i] : null));
+  delta.push(sel.lap_time_ms - ref.lap_time_ms);                 // Ziellinie
+  const xs = delta.map((_, i) => i / n);
+  const deltaBox = h("div", { class: "xy", role: "img", "aria-label": "Zeitabstand entlang der Runde" });
+  kids.push(h("div", { class: "subchart-title" }, "Zeitabstand entlang der Runde"),
+    h("div", { class: "legend" },
+      h("span", { class: "key" }, h("span", { class: "mark-loss" }), "langsamer (über 0)"),
+      h("span", { class: "key" }, h("span", { class: "mark-gain" }), "schneller (unter 0)")),
+    deltaBox);
+
+  // 2) Mini-Sektoren
+  const secBox = h("div", { class: "xy sectors", role: "img", "aria-label": "Zeitgewinn und -verlust je Abschnitt" });
+  kids.push(h("div", { class: "subchart-title" }, `${SECTORS} Abschnitte`), secBox);
+
+  // 3) Tempo
+  let speedBox = null;
+  if (sel.trace.v && ref.trace.v) {
+    speedBox = h("div", { class: "xy", role: "img", "aria-label": "Tempo entlang der Runde" });
+    const key = (color, label) => { const v = s("svg", { width: 18, height: 10 }); v.append(s("line", { x1: 1, y1: 5, x2: 17, y2: 5, stroke: color, "stroke-width": 2, "stroke-linecap": "round" })); return h("span", { class: "key" }, v, label); };
+    kids.push(h("div", { class: "subchart-title" }, "Tempo (km/h)"),
+      h("div", { class: "legend" }, key("var(--series-1)", `Runde ${sel.lap_number}`), key("var(--series-2)", ref.id === pbId ? "Bestzeit" : `Runde ${ref.lap_number}`)),
+      speedBox);
+  }
+  body.replaceChildren(...kids);
+
+  const tipFor = (i) => {
+    const pct = Math.round(xs[i] * 1000) / 10;
+    const rows = [h("div", { class: "v" }, delta[i] == null ? "–" : `${fmtDelta(delta[i])} s`), h("div", { class: "k" }, `bei ${pct} % der Runde`)];
+    if (speedBox && i < n) {
+      const a = sel.trace.v[i], b = ref.trace.v[i];
+      if (a != null) rows.push(h("div", { class: "k" }, h("i"), `${Math.round(a)} km/h Runde ${sel.lap_number}`));
+      if (b != null) rows.push(h("div", { class: "k" }, h("i", { style: "background: var(--series-2)" }), `${Math.round(b)} km/h Vergleich`));
+    }
+    return rows;
+  };
+
+  analysis.charts.push(drawXY(deltaBox, { xs, series: [{ values: delta.map((v) => (v == null ? null : v / 1000)), color: "var(--text-primary)" }], signArea: true, zero: true, yFmt: (v) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(Math.abs(v) < 1 ? 2 : 1)}`, tip: tipFor }));
+  drawSectors(secBox, sd, sT, rT);
+  if (speedBox) {
+    const sv = [...sel.trace.v, null], rv = [...ref.trace.v, null];
+    analysis.charts.push(drawXY(speedBox, { xs, series: [{ values: rv, color: "var(--series-2)" }, { values: sv, color: "var(--series-1)" }], yFmt: (v) => Math.round(v), tip: tipFor }));
+  }
+}
+
+function niceStep(range, target = 4) {
+  const raw = range / target, p = 10 ** Math.floor(Math.log10(raw));
+  return [1, 2, 2.5, 5, 10].map((f) => f * p).find((st) => st >= raw) || 10 * p;
+}
+
+/** Linien über die Runde (x = 0..1). Crosshair ist mit den anderen Analyse-Diagrammen gekoppelt. */
+function drawXY(box, { xs, series, signArea = false, zero = false, yFmt, tip }) {
+  const W = box.clientWidth || 600, H = box.clientHeight || 200;
+  const m = { l: 46, r: 10, t: 10, b: 22 };
+  const all = series.flatMap((se) => se.values.filter((v) => v != null));
+  if (zero) all.push(0);
+  let lo = Math.min(...all), hi = Math.max(...all);
+  if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
+  const padY = (hi - lo) * 0.08; lo -= padY; hi += padY;
+  const x = (f) => m.l + f * (W - m.l - m.r);
+  const y = (v) => m.t + (1 - (v - lo) / (hi - lo)) * (H - m.t - m.b);
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, "aria-hidden": "true" });
+  const grid = s("g", { class: "grid" }), axis = s("g", { class: "axis" });
+  const st = niceStep(hi - lo);
+  for (let v = Math.ceil(lo / st) * st; v <= hi; v += st) {
+    grid.append(s("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) }));
+    const t = s("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" }); t.textContent = yFmt(v); axis.append(t);
+  }
+  for (const f of [0, 0.25, 0.5, 0.75, 1]) {
+    const t = s("text", { x: x(f), y: H - 6, "text-anchor": f === 0 ? "start" : f === 1 ? "end" : "middle" });
+    t.textContent = `${Math.round(f * 100)} %`; axis.append(t);
+  }
+  svg.append(grid, axis);
+
+  const runs = (values) => {   // zusammenhängende Abschnitte ohne Lücken
+    const out = []; let cur = [];
+    values.forEach((v, i) => { if (v == null) { if (cur.length) out.push(cur); cur = []; } else cur.push([xs[i], v]); });
+    if (cur.length) out.push(cur);
+    return out;
+  };
+
+  if (signArea) {
+    const id = `c${Math.random().toString(36).slice(2, 8)}`;
+    const defs = s("defs");
+    const up = s("clipPath", { id: `${id}u` }); up.append(s("rect", { x: 0, y: 0, width: W, height: y(0) }));
+    const dn = s("clipPath", { id: `${id}d` }); dn.append(s("rect", { x: 0, y: y(0), width: W, height: H }));
+    defs.append(up, dn); svg.append(defs);
+    for (const run of runs(series[0].values)) {
+      const d = `M${x(run[0][0])},${y(0)}` + run.map(([f, v]) => `L${x(f).toFixed(1)},${y(v).toFixed(1)}`).join("") + `L${x(run[run.length - 1][0])},${y(0)}Z`;
+      svg.append(s("path", { d, fill: "var(--loss)", opacity: 0.28, "clip-path": `url(#${id}u)` }));
+      svg.append(s("path", { d, fill: "var(--gain)", opacity: 0.28, "clip-path": `url(#${id}d)` }));
+    }
+  }
+  if (zero) svg.append(s("line", { class: "zero", x1: m.l, x2: W - m.r, y1: y(0), y2: y(0) }));
+  for (const se of series) {
+    for (const run of runs(se.values)) {
+      const d = run.map(([f, v], k) => `${k ? "L" : "M"}${x(f).toFixed(1)},${y(v).toFixed(1)}`).join("");
+      svg.append(s("path", { d, fill: "none", stroke: se.color, "stroke-width": signArea ? 1.5 : 2, "stroke-linejoin": "round" }));
+    }
+  }
+
+  const cross = s("line", { class: "crosshair", y1: m.t, y2: H - m.b, visibility: "hidden" });
+  const hit = s("rect", { x: m.l, y: 0, width: W - m.l - m.r, height: H, fill: "transparent", tabindex: 0, "aria-label": "Mit Pfeiltasten entlang der Runde bewegen" });
+  svg.append(cross, hit);
+  box.replaceChildren(svg);
+
+  const chart = {
+    showAt(i) { cross.setAttribute("x1", x(xs[i])); cross.setAttribute("x2", x(xs[i])); cross.setAttribute("visibility", "visible"); },
+    hide() { cross.setAttribute("visibility", "hidden"); },
+  };
+  let cur = 0;
+  const tipEl = $("#tooltip");
+  const showAll = (i, cx, cy) => {
+    cur = i;
+    analysis.charts.forEach((c) => c.showAt(i));
+    tipEl.replaceChildren(...tip(i));
+    tipEl.hidden = false;
+    const r = box.getBoundingClientRect();
+    const px = cx ?? r.left + (x(xs[i]) / W) * r.width, py = cy ?? r.top + r.height / 3;
+    tipEl.style.left = `${Math.min(Math.max(8, px + 14), window.innerWidth - tipEl.offsetWidth - 8)}px`;
+    tipEl.style.top = `${Math.max(8, py - tipEl.offsetHeight - 14)}px`;
+  };
+  const hideAll = () => { analysis.charts.forEach((c) => c.hide()); tipEl.hidden = true; };
+  const idxAt = (clientX) => {
+    const r = box.getBoundingClientRect();
+    const f = (((clientX - r.left) / r.width) * W - m.l) / (W - m.l - m.r);
+    return Math.max(0, Math.min(xs.length - 1, Math.round(f * (xs.length - 1))));
+  };
+  hit.addEventListener("pointermove", (e) => showAll(idxAt(e.clientX), e.clientX, e.clientY));
+  hit.addEventListener("pointerdown", (e) => showAll(idxAt(e.clientX), e.clientX, e.clientY));
+  hit.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") hideAll(); });
+  hit.addEventListener("focus", () => showAll(cur));
+  hit.addEventListener("blur", hideAll);
+  hit.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowRight") { showAll(Math.min(xs.length - 1, cur + 2)); e.preventDefault(); }
+    if (e.key === "ArrowLeft") { showAll(Math.max(0, cur - 2)); e.preventDefault(); }
+    if (e.key === "Escape") hideAll();
+  });
+  return chart;
+}
+
+/** Balken je Abschnitt: über 0 = Verlust (rot), unter 0 = Gewinn (blau). Beschriftet nur Extremwerte. */
+function drawSectors(box, deltas, sT, rT) {
+  const W = box.clientWidth || 600, H = box.clientHeight || 170;
+  const m = { l: 46, r: 10, t: 16, b: 22 };
+  const vals = deltas.map((v) => (v == null ? null : v / 1000));
+  const known = vals.filter((v) => v != null);
+  const ext = Math.max(0.05, ...known.map(Math.abs)) * 1.15;
+  const y = (v) => m.t + (1 - (v + ext) / (2 * ext)) * (H - m.t - m.b);
+  const bw = (W - m.l - m.r) / vals.length;
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, "aria-hidden": "true" });
+  const axis = s("g", { class: "axis" });
+  const st = niceStep(ext, 2);
+  for (let v = -Math.floor(ext / st) * st; v <= ext; v += st) {
+    const t = s("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" });
+    t.textContent = `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(2)}`; axis.append(t);
+  }
+  svg.append(axis, s("line", { class: "zero", x1: m.l, x2: W - m.r, y1: y(0), y2: y(0) }));
+  const maxI = known.length ? vals.indexOf(Math.max(...known)) : -1;
+  const minI = known.length ? vals.indexOf(Math.min(...known)) : -1;
+  const tipEl = $("#tooltip");
+  vals.forEach((v, k) => {
+    const x0 = m.l + k * bw + 1, w = bw - 2;                 // 2 px Abstand zwischen Balken
+    const lbl = s("text", { x: x0 + w / 2, y: H - 6, "text-anchor": "middle" });
+    lbl.textContent = String(k + 1); axis.append(lbl);
+    if (v == null) return;
+    const y0 = y(0), y1 = y(v), top = Math.min(y0, y1), hgt = Math.max(1, Math.abs(y1 - y0));
+    const r = Math.min(4, hgt, w / 2);
+    // Rundung nur am Datenende, an der Nulllinie gerade
+    const d = v >= 0
+      ? `M${x0},${y0}V${top + r}Q${x0},${top} ${x0 + r},${top}H${x0 + w - r}Q${x0 + w},${top} ${x0 + w},${top + r}V${y0}Z`
+      : `M${x0},${y0}V${top + hgt - r}Q${x0},${top + hgt} ${x0 + r},${top + hgt}H${x0 + w - r}Q${x0 + w},${top + hgt} ${x0 + w},${top + hgt - r}V${y0}Z`;
+    const bar = s("path", { d, fill: v >= 0 ? "var(--loss)" : "var(--gain)", tabindex: 0 });
+    const show = (cx, cy) => {
+      tipEl.replaceChildren(
+        h("div", { class: "v" }, `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(3)} s`),
+        h("div", { class: "k" }, `Abschnitt ${k + 1} · ${k * 10}–${(k + 1) * 10} % der Runde`),
+        h("div", { class: "k" }, `${(sT[k] / 1000).toFixed(3)} s gegen ${(rT[k] / 1000).toFixed(3)} s`));
+      tipEl.hidden = false;
+      const rr = box.getBoundingClientRect();
+      const px = cx ?? rr.left + ((x0 + w / 2) / W) * rr.width, py = cy ?? rr.top + (top / H) * rr.height;
+      tipEl.style.left = `${Math.min(Math.max(8, px + 14), window.innerWidth - tipEl.offsetWidth - 8)}px`;
+      tipEl.style.top = `${Math.max(8, py - tipEl.offsetHeight - 14)}px`;
+      bar.setAttribute("opacity", "0.8");
+    };
+    const hide = () => { tipEl.hidden = true; bar.removeAttribute("opacity"); };
+    // Trefferfläche größer als der Balken: ganze Spalte
+    const hit = s("rect", { x: x0 - 1, y: m.t, width: w + 2, height: H - m.t - m.b, fill: "transparent" });
+    for (const el of [bar, hit]) {
+      el.addEventListener("pointermove", (e) => show(e.clientX, e.clientY));
+      el.addEventListener("pointerdown", (e) => show(e.clientX, e.clientY));
+      el.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") hide(); });
+    }
+    bar.addEventListener("focus", () => show()); bar.addEventListener("blur", hide);
+    svg.append(hit, bar);
+    if (k === maxI && v > 0 || k === minI && v < 0) {
+      const t = s("text", { class: "sector-label", x: x0 + w / 2, y: v >= 0 ? top - 4 : top + hgt + 12, "text-anchor": "middle" });
+      t.textContent = `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(2)}`; svg.append(t);
+    }
+  });
+  box.replaceChildren(svg);
+}
+
+$("#pick-lap").addEventListener("change", renderAnalysis);
+$("#pick-ref").addEventListener("change", renderAnalysis);

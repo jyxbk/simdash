@@ -48,6 +48,11 @@ CREATE TABLE IF NOT EXISTS laps (
 );
 CREATE INDEX IF NOT EXISTS idx_laps_combo ON laps(game, track, layout, car);
 CREATE INDEX IF NOT EXISTS idx_laps_recorded ON laps(recorded_at);
+-- Verlauf entlang der Runde (Zeit/Tempo/Pedale auf festem Raster), getrennt wegen Größe
+CREATE TABLE IF NOT EXISTS lap_traces (
+    uid   TEXT PRIMARY KEY REFERENCES laps(uid) ON DELETE CASCADE,
+    data  TEXT NOT NULL
+);
 """
 
 
@@ -69,6 +74,14 @@ def db() -> Iterator[sqlite3.Connection]:
         con.close()
 
 
+class Trace(BaseModel):
+    step: float = Field(gt=0, le=0.1)
+    t: list[int | None] = Field(max_length=1000)
+    v: list[float | None] | None = Field(default=None, max_length=1000)
+    thr: list[int | None] | None = Field(default=None, max_length=1000)
+    brk: list[int | None] | None = Field(default=None, max_length=1000)
+
+
 class LapIn(BaseModel):
     uid: str = Field(min_length=8, max_length=64)
     game: str = Field(min_length=1, max_length=40)
@@ -87,6 +100,7 @@ class LapIn(BaseModel):
     sectors: list[int] | None = None
     driver: str = Field(default="", max_length=80)
     note: str = Field(default="", max_length=200)
+    trace: Trace | None = None
     recorded_at: datetime
 
 
@@ -108,6 +122,8 @@ def _bool(v: bool | None) -> int | None:
 
 def row_to_lap(r: sqlite3.Row) -> dict:
     d = dict(r)
+    if "has_trace" in d:
+        d["has_trace"] = bool(d["has_trace"])
     for k in ("valid", "online"):
         d[k] = None if d[k] is None else bool(d[k])
     for k in ("estimated", "outlap", "inlap"):
@@ -152,6 +168,9 @@ def add_laps(laps: list[LapIn]) -> dict:
                 ),
             )
             added += cur.rowcount
+            if cur.rowcount and lap.trace:
+                con.execute("INSERT OR REPLACE INTO lap_traces (uid, data) VALUES (?, ?)",
+                            (lap.uid, lap.trace.model_dump_json()))
     return {"received": len(laps), "added": added}
 
 
@@ -176,7 +195,8 @@ def list_laps(
     where, args = _filters(game, track, car, layout)
     with db() as con:
         rows = con.execute(
-            f"SELECT * FROM laps{where} ORDER BY recorded_at DESC, id DESC LIMIT ?",
+            f"""SELECT laps.*, EXISTS(SELECT 1 FROM lap_traces t WHERE t.uid = laps.uid) AS has_trace
+                FROM laps{where} ORDER BY recorded_at DESC, id DESC LIMIT ?""",
             [*args, limit],
         ).fetchall()
     return [row_to_lap(r) for r in rows]
@@ -207,6 +227,27 @@ def bests(game: str | None = None, track: str | None = None, car: str | None = N
                 "best_valid": row_to_lap(best_valid) if best_valid else None,
                 "best_any": row_to_lap(best_any) if best_any else None,
             })
+    return out
+
+
+@app.get("/api/traces")
+def traces(game: str, track: str, car: str, layout: str = "",
+           limit: int = Query(default=200, ge=1, le=1000)) -> list[dict]:
+    """Runden mit Verlauf für eine Kombination (neueste zuerst) – für Delta, Sektoren, Ideallauf."""
+    with db() as con:
+        rows = con.execute(
+            """SELECT l.*, t.data AS trace FROM laps l JOIN lap_traces t ON t.uid = l.uid
+               WHERE l.game=? AND l.track=? AND l.layout=? AND l.car=?
+               ORDER BY l.recorded_at DESC LIMIT ?""",
+            (game, track, layout, car, limit),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        trace = json.loads(d.pop("trace"))
+        lap = row_to_lap(d)
+        lap["trace"] = trace
+        out.append(lap)
     return out
 
 
@@ -251,6 +292,7 @@ def set_note(lap_id: int, body: NoteIn) -> dict:
 @app.delete("/api/laps/{lap_id}", dependencies=[Depends(require_token)])
 def delete_lap(lap_id: int) -> dict:
     with db() as con:
+        con.execute("DELETE FROM lap_traces WHERE uid=(SELECT uid FROM laps WHERE id=?)", (lap_id,))
         cur = con.execute("DELETE FROM laps WHERE id=?", (lap_id,))
     if not cur.rowcount:
         raise HTTPException(404, "Runde nicht gefunden")

@@ -96,3 +96,15 @@ def test_stats_and_layout_filter(client):
     assert st["laps"] == 3 and st["valid_laps"] == 2 and st["tracks"] == 2
     assert st["drive_ms"] == 253000 and st["sessions"] == 2
     assert len(client.get("/api/laps?layout=gp").json()) == 2
+
+
+def test_trace_roundtrip(client):
+    tr = {"step": 0.005, "t": [i * 400 for i in range(200)], "v": [150.0] * 200, "thr": [100] * 200, "brk": [0] * 200}
+    client.post("/api/laps", headers=AUTH, json=[lap("aaaaaaaa1", 81000, trace=tr), lap("aaaaaaaa2", 82000)])
+    laps = {l["uid"]: l for l in client.get("/api/laps").json()}
+    assert laps["aaaaaaaa1"]["has_trace"] is True and laps["aaaaaaaa2"]["has_trace"] is False
+    t = client.get("/api/traces", params={"game": "acevo", "track": "road_atlanta", "car": "bmw_m4_gt3"}).json()
+    assert len(t) == 1 and t[0]["trace"]["t"][10] == 4000 and t[0]["lap_time_ms"] == 81000
+    lap_id = laps["aaaaaaaa1"]["id"]
+    assert client.delete(f"/api/laps/{lap_id}", headers=AUTH).status_code == 200
+    assert client.get("/api/traces", params={"game": "acevo", "track": "road_atlanta", "car": "bmw_m4_gt3"}).json() == []

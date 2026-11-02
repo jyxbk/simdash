@@ -161,3 +161,27 @@ def test_struct_layout_sizes():
     # AC1/ACC: gemeinsamer Anfang gleich
     assert sc.AccGraphics.normalizedCarPosition.offset == sc.Ac1Graphics.normalizedCarPosition.offset
     assert sc.AccGraphics.completedLaps.offset == 132 and sc.AccGraphics.iCurrentTime.offset == 140
+
+
+def test_trace_on_lap():
+    d = Drive()
+    d.feed()
+    d.lap(80000)
+    d.settle()
+    tr = d.laps[0].trace
+    assert tr and len(tr["t"]) == 200 and tr["v"] is None
+    # bei 50 % der Runde ungefähr 40 s
+    assert abs(tr["t"][100] - 40000) < 1500
+    assert all(a is None or b is None or a <= b for a, b in zip(tr["t"], tr["t"][1:]))
+
+
+def test_build_trace_gaps_and_wrap():
+    # Outlap ab 40 %: davor None; Werte vom alten Rundenende (npos 0.99 bei t<5 s) ignoriert
+    samples = [(0.99, 100, 200.0, 1.0, 0.0)] + [(0.4 + i * 0.004, 30000 + i * 400, 150.0, 0.5, 0.0) for i in range(150)]
+    tr = sc.build_trace(samples)
+    assert tr["t"][0] is None and tr["t"][79] is None and tr["t"][81] is not None
+    assert tr["thr"][150] == 50 and tr["v"][150] == 150.0
+
+
+def test_build_trace_too_short():
+    assert sc.build_trace([(i / 100, i * 100, None, None, None) for i in range(10)]) is None

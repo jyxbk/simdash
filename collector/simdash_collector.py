@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "0.1.0b1"
+VERSION = "0.2.0b1"
 POLL_HZ = 50
 
 log = logging.getLogger("simdash")
@@ -409,6 +409,56 @@ class Snapshot:
     online: bool | None = None
     session_id: str = ""          # wechselt bei neuer Session (z. B. Training -> Quali)
     incidents: int | None = None  # nur iRacing
+    speed_kmh: float | None = None
+    throttle: float | None = None  # 0..1
+    brake: float | None = None     # 0..1
+
+
+TRACE_STEP = 0.005   # Verlauf alle 0,5 % der Runde (200 Punkte)
+
+
+def build_trace(samples: list[tuple]) -> dict | None:
+    """Rohwerte (npos, ms, kmh, gas, bremse) auf ein festes Raster entlang der Runde legen.
+
+    t[i] = Rundenzeit in ms bei Position i*TRACE_STEP. Lücken (z. B. Outlap aus der Box)
+    bleiben None. Rückwärts (Dreher) und Werte vom Rundenende davor werden verworfen.
+    """
+    pts, last_n = [], -1.0
+    for n, t, v, thr, brk in samples:
+        if not (0.0 <= n <= 1.0) or (t < 5000 and n > 0.9):
+            continue
+        if n <= last_n:
+            continue
+        pts.append((n, t, v, thr, brk))
+        last_n = n
+    if len(pts) < 20 or pts[-1][0] - pts[0][0] < 0.5:
+        return None
+    out = {"step": TRACE_STEP, "t": [], "v": [], "thr": [], "brk": []}
+    j = 0
+    for i in range(int(round(1 / TRACE_STEP))):
+        g = i * TRACE_STEP
+        while j < len(pts) - 2 and pts[j + 1][0] < g:
+            j += 1
+        a, b = pts[j], pts[j + 1]
+        if g < a[0] or g > b[0]:
+            for k in ("t", "v", "thr", "brk"):
+                out[k].append(None)
+            continue
+        f = (g - a[0]) / (b[0] - a[0]) if b[0] > a[0] else 0.0
+
+        def lerp(k, scale=1.0, nd=0):
+            if a[k] is None or b[k] is None:
+                return None
+            val = (a[k] + (b[k] - a[k]) * f) * scale
+            return round(val, nd) if nd else int(round(val))
+        out["t"].append(lerp(1))
+        out["v"].append(lerp(2, 1.0, 1))
+        out["thr"].append(lerp(3, 100))
+        out["brk"].append(lerp(4, 100))
+    for k in ("v", "thr", "brk"):
+        if all(x is None for x in out[k]):
+            out[k] = None
+    return out
 
 
 @dataclass
@@ -431,6 +481,7 @@ class Lap:
     uid: str = field(default_factory=lambda: uuid.uuid4().hex)
     sectors: list[int] | None = None
     note: str = ""
+    trace: dict | None = None
 
     def as_dict(self) -> dict:
         return dict(self.__dict__)
@@ -470,6 +521,7 @@ class LapDetector:
         self.lap_started_in_pit = bool(snap and snap.in_pit_lane)
         self.lap_max_current = 0
         self.lap_start_incidents = snap.incidents if snap else None
+        self.samples: list[tuple] = []
 
     def _key(self, s: Snapshot):
         return (s.game, s.track, s.layout, s.car, s.session_type, s.session_id)
@@ -482,7 +534,7 @@ class LapDetector:
                 note = f"+{inc}x Incidents"
                 # iRacing wertet Runden mit Incident (Off-Track, Kontakt) nicht für die Bestzeit
                 self.lap_invalid = self.lap_valid_known = True
-        return Lap(note=note,
+        return Lap(note=note, trace=build_trace(self.samples),
             game=ref.game, track=ref.track, layout=ref.layout, car=ref.car,
             session_uid=self.session_uid, session_type=ref.session_type,
             lap_number=lap_number, lap_time_ms=int(time_ms),
@@ -562,6 +614,8 @@ class LapDetector:
                 if not s.valid_now:
                     self.lap_invalid = True
             self.lap_max_current = max(self.lap_max_current, s.current_ms)
+            if s.current_ms > 0:
+                self.samples.append((s.npos, s.current_ms, s.speed_kmh, s.throttle, s.brake))
             # Boxenausfahrt liegt meist kurz hinter der Linie -> Boxengasse in der
             # ersten Rundenhälfte = Outlap
             if s.in_pit_lane and s.npos < 0.5:
@@ -704,6 +758,7 @@ class AcEvoSource(GameSource):
             session_type=EVO_SESSIONS.get(st.session, str(st.session)),
             driver=driver, online=bool(st.is_online),
             session_id=f"{st.event_id}:{st.session_id}",
+            speed_kmh=float(g.display_speed_kmh), throttle=g.gas_percent, brake=g.brake_percent,
         )
 
     def info(self) -> dict:
@@ -723,6 +778,7 @@ class AcFamilySource(GameSource):
 
     def __init__(self, processes: dict[str, str]):
         super().__init__()
+        self.ph = NamedMapping("Local\\acpmf_physics")
         self.processes = processes
         self.game = ""
         self._proc_at = 0.0
@@ -754,6 +810,7 @@ class AcFamilySource(GameSource):
             valid, pit, session_id = None, bool(g.isInPitLane), ""
             sessions = AC1_SESSIONS
         driver = f"{wstr(st.playerName)} {wstr(st.playerSurname)}".strip()
+        kmh, gas, brk = self.pedals()
         return Snapshot(
             game=game, status=g.status, packet_id=g.packetId,
             lap_count=g.completedLaps, current_ms=g.iCurrentTime,
@@ -765,11 +822,29 @@ class AcFamilySource(GameSource):
             session_type=sessions.get(g.session, str(g.session)),
             driver=driver, online=bool(st.isOnline) if game == "acc" else None,
             session_id=session_id,
+            speed_kmh=kmh, throttle=gas, brake=brk,
         )
 
     def info(self) -> dict:
         self.refresh_static()
         return {"sm_version": wstr(self.static.smVersion), "game_version": wstr(self.static.acVersion)}
+
+    def close(self) -> None:
+        super().close()
+        self.ph.close()
+
+    def pedals(self) -> tuple:
+        """SPageFilePhysics: gas @4, brake @8, speedKmh @28 (AC1, ACC, AC Rally gleich)."""
+        import struct
+        try:
+            if not self.ph.open():
+                return None, None, None
+            raw = self.ph.read_bytes(0, 32)
+        except (OSError, ValueError):
+            return None, None, None
+        gas, brake = struct.unpack_from("<ff", raw, 4)
+        (kmh,) = struct.unpack_from("<f", raw, 28)
+        return kmh, gas, brake
 
 
 # --- iRacing -----------------------------------------------------------------
@@ -836,7 +911,7 @@ class IRacingSource(GameSource):
     settle_s = 3.0
     VARS = ("SessionNum", "IsOnTrack", "IsReplayPlaying", "LapCompleted", "LapLastLapTime",
             "LapBestLapTime", "LapCurrentLapTime", "LapDistPct", "OnPitRoad",
-            "PlayerTrackSurface", "PlayerCarMyIncidentCount")
+            "PlayerTrackSurface", "PlayerCarMyIncidentCount", "Speed", "Throttle", "Brake")
 
     def __init__(self):
         self.m = NamedMapping("Local\\IRSDKMemMapFileName")
@@ -913,6 +988,7 @@ class IRacingSource(GameSource):
             driver=me.get("name", ""), online=si.get("online"),
             session_id=f"{si.get('subsession', '')}:{num}",
             incidents=v("PlayerCarMyIncidentCount"),
+            speed_kmh=v("Speed", 0.0) * 3.6, throttle=v("Throttle", None), brake=v("Brake", None),
         )
 
     def info(self) -> dict:
