@@ -140,3 +140,4 @@ def test_incidents_note():
         laps += det.update(snap(lap_count=1, last_ms=81500 if i >= 3 else -1, current_ms=500 * i, npos=0.01, incidents=2))
     assert len(laps) == 1
     assert laps[0].lap_time_ms == 81500 and laps[0].note == "+2x Incidents"
+    assert laps[0].valid is False

@@ -480,6 +480,8 @@ class LapDetector:
             inc = ref.incidents - self.lap_start_incidents
             if inc > 0:
                 note = f"+{inc}x Incidents"
+                # iRacing wertet Runden mit Incident (Off-Track, Kontakt) nicht für die Bestzeit
+                self.lap_invalid = self.lap_valid_known = True
         return Lap(note=note,
             game=ref.game, track=ref.track, layout=ref.layout, car=ref.car,
             session_uid=self.session_uid, session_type=ref.session_type,
@@ -535,6 +537,8 @@ class LapDetector:
                         p["lap"].lap_time_ms = s.last_ms   # gleiche Zeit wie die Runde davor
                     else:
                         p["lap"].estimated = True
+                        if s.last_ms <= 0 and s.game == "iracing":
+                            p["lap"].valid = False   # iRacing hat die Runde verworfen
                     out.append(p["lap"])
                     self.pending = None
             elif p["kind"] == "cross":
