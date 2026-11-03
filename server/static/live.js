@@ -547,8 +547,9 @@ function renderEngine(t, d) {
   if (t.torque > 0) items.push(kv("Drehmoment", `${num(t.torque)} Nm`));
   if (t.max_rpm && d.rpm) items.push(kv("Drehzahl", `${num(d.rpm)} / ${num(t.max_rpm)}`));
   if (t.fuel != null && t.fuel > 0) items.push(kv("Sprit", `${num(t.fuel, 1)} l`));
-  if (t.fuel_lap > 0) items.push(kv("Verbrauch", `${num(t.fuel_lap, 2)} l/Runde`));
-  if (t.fuel_laps > 0) items.push(kv("reicht für", `${num(t.fuel_laps, 1)} Runden`, t.fuel_laps < 2 ? "warn" : ""));
+  const fuelOk = t.fuel_lap > 0.3;                      // erst nach echter Messung (im Stand Unsinn)
+  if (fuelOk) items.push(kv("Verbrauch", `${num(t.fuel_lap, 2)} l/Runde`));
+  if (fuelOk && t.fuel_laps > 0) items.push(kv("reicht für", `${num(t.fuel_laps, 1)} Runden`, t.fuel_laps < 2 ? "warn" : ""));
   const dmg = (t.dmg || []).filter((v) => v > 0.01);
   if (dmg.length) items.push(kv("Schaden", `${num(Math.max(...dmg) * 100)} %`, "warn"));
   card.hidden = !items.length;
