@@ -124,6 +124,14 @@ function pbAt(npos) {
   if (a == null || b == null) return null;
   return a + (b - a) * (f - i);
 }
+/** Tempo der Bestzeit an Position npos (km/h). */
+function pbSpeedAt(npos) {
+  const v = live.pb && live.pb.trace.v;
+  if (!v) return null;
+  const n = v.length, f = Math.min(n - 1.001, npos * n), i = Math.floor(f);
+  const a = v[i], b = v[i + 1] ?? a;
+  return a == null || b == null ? null : a + (b - a) * (f - i);
+}
 function liveDelta(d) {
   if (!d || d.current_ms <= 0 || d.npos == null) return null;
   if (d.npos > 0.97 && d.current_ms < 5000) return null;        // Wert der alten Runde hängt nach
@@ -135,7 +143,9 @@ function addTrail(d) {
   const last = live.trail[live.trail.length - 1];
   if (last && (d.npos <= last.npos || d.npos - last.npos < 0.002)) return;
   if (d.npos > 0.97 && d.current_ms < 5000) return;
-  const pt = { npos: d.npos, t: d.current_ms, x: d.pos_x, z: d.pos_z, delta: liveDelta(d) };
+  const pv = pbSpeedAt(d.npos);
+  const pt = { npos: d.npos, t: d.current_ms, x: d.pos_x, z: d.pos_z, v: d.speed_kmh, delta: liveDelta(d),
+               vd: pv != null && d.speed_kmh != null ? d.speed_kmh - pv : null };
   live.trail.push(pt);
   // Abschnittsgrenzen: Zeit beim Überfahren von k/10 interpolieren
   if (last) {
@@ -146,13 +156,12 @@ function addTrail(d) {
     }
   } else if (d.npos < 0.02) live.bounds[0] = 0;
   if (live.map && last && last.x != null && pt.x != null) {
-    // Farbe nach Verlust-Tempo über die letzten ~1,5 % der Runde
-    const back = live.trail.filter((p) => p.delta != null && pt.npos - p.npos <= 0.03);
+    // Farbe nach Tempo-Differenz zur Bestzeit (gemittelt über die letzten ~1 % der Runde)
+    const back = live.trail.filter((p) => p.vd != null && pt.npos - p.npos <= 0.01);
     let color = "#8a8984";
-    if (pt.delta != null && back.length > 1) {
-      const a = back[0], rate = (pt.delta - a.delta) / ((pt.npos - a.npos) / 0.005);   // ms je 0,5 %
-      live.lastRate = rate;
-      color = mixRgb(MAP_NEUTRAL, rate > 0 ? MAP_LOSS : MAP_GAIN, Math.min(1, Math.abs(rate) / 10));
+    if (back.length) {
+      const m = back.reduce((a, p) => a + p.vd, 0) / back.length;
+      color = mixRgb(MAP_NEUTRAL, m < 0 ? MAP_LOSS : MAP_GAIN, Math.sqrt(Math.min(1, Math.abs(m) / 12)));
     }
     const P = live.map.P;
     const [x1, y1] = P(last.x, last.z), [x2, y2] = P(pt.x, pt.z);
@@ -184,7 +193,7 @@ function buildLiveMap(geo) {
     const [px, py] = P(x, Z[i]);
     d += `${i && X[i - 1] != null ? "L" : "M"}${px},${py}`;
   });
-  svg.append(s("path", { class: "map-base", d }));
+  svg.append(s("path", { class: "map-casing", d }), s("path", { class: "map-base", d }));
   // Start/Ziel
   const i0 = X.findIndex((x, i) => x != null && Z[i] != null);
   if (i0 >= 0 && i0 <= 2) {
@@ -199,11 +208,11 @@ function buildLiveMap(geo) {
   live.map = { P, trail, dot, W, H };
   // bereits gesammelte Spur nachzeichnen
   const old = live.trail; live.trail = [];
-  for (const p of old) addTrail({ npos: p.npos, current_ms: p.t, pos_x: p.x, pos_z: p.z });
+  for (const p of old) addTrail({ npos: p.npos, current_ms: p.t, pos_x: p.x, pos_z: p.z, speed_kmh: p.v });
   $("#lv-map-legend").replaceChildren(
-    h("span", { class: "key" }, h("span", { class: "mark-loss" }), "verliert Zeit"),
-    h("span", { class: "key" }, h("span", { class: "mark-gain" }), "gewinnt Zeit"),
-    h("span", { class: "key muted" }, "gegen deine Bestzeit"));
+    h("span", { class: "key" }, h("span", { class: "mark-loss" }), "langsamer"),
+    h("span", { class: "key" }, h("span", { class: "mark-gain" }), "schneller"),
+    h("span", { class: "key muted" }, "Tempo gegen deine Bestzeit, volle Farbe ab ±12 km/h"));
 }
 
 /* --- Darstellung ----------------------------------------------------------- */
@@ -318,6 +327,13 @@ function renderPosition(d) {
   if (d.pos_x == null || d.pos_z == null) { m.dot.setAttribute("visibility", "hidden"); return; }
   const [x, y] = m.P(d.pos_x, d.pos_z);
   m.dot.setAttribute("cx", x); m.dot.setAttribute("cy", y); m.dot.setAttribute("visibility", "visible");
+  const pv = pbSpeedAt(d.npos);
+  if (!m.bubble) { m.bubble = s("g", { class: "map-hover" }); m.dot.parentNode.insertBefore(m.bubble, m.dot); }
+  if (pv != null && d.speed_kmh != null && d.state === "live") {
+    const dv = d.speed_kmh - pv;
+    const ang = Math.atan2(y - m.H / 2, x - m.W / 2);
+    m.bubble.replaceChildren(mapBubble([x, y], [Math.cos(ang), Math.sin(ang)], `${dv > 0.5 ? "+" : dv < -0.5 ? "−" : "±"}${Math.abs(Math.round(dv))} km/h`, "hover"));
+  } else m.bubble.replaceChildren();
 }
 
 function renderLaps() {

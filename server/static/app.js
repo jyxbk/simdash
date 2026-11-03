@@ -581,11 +581,13 @@ function renderAnalysis() {
 
   // 0) Streckenkarte (nur Runden mit Positionsdaten, Collector ab 0.3)
   const geo = [sel, ref, ...traced].find((l) => l.trace.x && l.trace.z && l.trace.x.filter((v) => v != null).length > 100) || analysis.geo;
-  let mapBox = null, mapMode = analysis.mapMode || "delta";
-  if (sel.id === ref.id) mapMode = "speed";
+  const hasV = !!(sel.trace.v && ref.trace.v);
+  let mapMode = analysis.mapMode || "vdiff", mapBox = null;
+  if (mapMode === "vdiff" && (!hasV || sel.id === ref.id)) mapMode = sel.id === ref.id && sel.trace.v ? "speed" : "delta";
+  if (mapMode === "delta" && sel.id === ref.id) mapMode = "speed";
   if (mapMode === "speed" && !sel.trace.v) mapMode = "delta";
   if (geo) {
-    mapBox = h("div", { class: "trackmap", role: "img", "aria-label": mapMode === "delta" ? "Streckenkarte: wo Zeit verloren oder gewonnen wurde" : "Streckenkarte: Tempo entlang der Runde" });
+    mapBox = h("div", { class: "trackmap", role: "img", "aria-label": { vdiff: "Streckenkarte: wo du langsamer oder schneller warst (km/h)", delta: "Streckenkarte: wo Zeit verloren oder gewonnen wurde", speed: "Streckenkarte: Tempo entlang der Runde" }[mapMode] });
     const modeBtn = (mode, label, disabled) => {
       const b = h("button", { class: "chip", type: "button", "aria-pressed": String(mapMode === mode) }, label);
       if (disabled) b.disabled = true;
@@ -595,6 +597,7 @@ function renderAnalysis() {
     kids.push(h("div", { class: "map-head" },
       h("div", { class: "subchart-title" }, "Streckenkarte"),
       h("div", { class: "chips map-modes" },
+        modeBtn("vdiff", "Tempo-Differenz", !hasV || sel.id === ref.id),
         modeBtn("delta", "Zeitverlust", sel.id === ref.id),
         modeBtn("speed", "Tempo", !sel.trace.v))),
       h("div", { class: "legend", id: "map-legend" }), mapBox);
@@ -675,7 +678,31 @@ function drawTrackMap(box, { geo, sel, ref, mode, tip }) {
   // Farbe je Segment i → i+1
   const color = new Array(n).fill(null);
   const legend = $("#map-legend");
-  if (mode === "delta") {
+  let vd = null;                                       // Tempo-Differenz (km/h), geglättet
+  if (sel.trace.v && ref.trace.v) {
+    const raw = sel.trace.v.map((a, i) => (a != null && ref.trace.v[i] != null ? a - ref.trace.v[i] : null));
+    vd = raw.map((v, i) => {
+      if (v == null) return null;
+      const w = [-2, -1, 0, 1, 2].map((o) => raw[i + o]).filter((x) => x != null);
+      return w.reduce((a, b) => a + b, 0) / w.length;
+    });
+  }
+  const label = (i) => {
+    if (mode === "vdiff") return vd && vd[i] != null ? `${vd[i] > 0.5 ? "+" : vd[i] < -0.5 ? "−" : "±"}${Math.abs(Math.round(vd[i]))} km/h` : null;
+    if (mode === "speed") return sel.trace.v && sel.trace.v[i] != null ? `${Math.round(sel.trace.v[i])} km/h` : null;
+    const a = sel.trace.t[i], b = ref.trace.t[i];
+    return a != null && b != null ? `${fmtDelta(a - b)} s` : null;
+  };
+  if (mode === "vdiff") {
+    const mags = vd.filter((v) => v != null).map(Math.abs).sort((a, b) => a - b);
+    const scale = Math.max(6, Math.min(25, mags[Math.floor(mags.length * 0.95)] || 0));
+    vd.forEach((v, i) => { if (v != null && vd[i + 1] != null) { const m = (v + vd[i + 1]) / 2; color[i] = mixRgb(MAP_NEUTRAL, m < 0 ? MAP_LOSS : MAP_GAIN, Math.sqrt(Math.min(1, Math.abs(m) / scale))); } });
+    legend.replaceChildren(
+      h("span", { class: "key" }, h("span", { class: "mark-loss" }), "langsamer"),
+      h("span", { class: "key" }, h("span", { class: "mark-gain" }), "schneller"),
+      h("span", { class: "key" }, h("span", { class: "mark-neutral" }), "gleich"),
+      h("span", { class: "key muted" }, `volle Farbe ab ±${Math.round(scale)} km/h · Runde ${sel.lap_number} gegen Vergleich`));
+  } else if (mode === "delta") {
     const d = sel.trace.t.map((v, i) => (v != null && ref.trace.t[i] != null ? v - ref.trace.t[i] : null));
     // Verlust je Strecke = Steigung des Abstands über ±4 Punkte (glättet das Messrauschen)
     const W2 = 4;
@@ -704,7 +731,7 @@ function drawTrackMap(box, { geo, sel, ref, mode, tip }) {
   // Asphalt-Unterlage, damit Lücken und neutrale Stellen sichtbar bleiben
   let under = "";
   for (let i = 0; i < n; i++) { const p = P(i); if (!p) continue; under += `${P(i - 1) && i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`; }
-  svg.append(s("path", { class: "map-base", d: under }));
+  svg.append(s("path", { class: "map-casing", d: under }), s("path", { class: "map-base", d: under }));
   const segs = s("g", { class: "map-segs" });
   for (let i = 0; i < n - 1; i++) {
     const a = P(i), b = P(i + 1);
@@ -731,14 +758,42 @@ function drawTrackMap(box, { geo, sel, ref, mode, tip }) {
     t.textContent = String(kk + 1); svg.append(t);
   }
 
+  // Nach außen zeigende Normale an Punkt i (für Beschriftungen)
+  const outward = (i) => {
+    const p = P(i), q = P(Math.min(n - 1, i + 2)) || P(Math.max(0, i - 2)) || p;
+    let nx = -(q[1] - p[1]), ny = q[0] - p[0];
+    const len = Math.hypot(nx, ny) || 1; nx /= len; ny /= len;
+    if ((p[0] - cx) * nx + (p[1] - cy) * ny < 0) { nx = -nx; ny = -ny; }
+    return [nx, ny];
+  };
+  const callouts = s("g", { class: "map-callouts" });
+  // Die drei Stellen mit dem größten Tempoverlust direkt beschriften (mind. 6 % der Runde auseinander)
+  if (mode === "vdiff" && vd) {
+    const cand = idx.filter((i) => vd[i] != null && vd[i] < -3).sort((a, b) => vd[a] - vd[b]);
+    const picked = [];
+    for (const i of cand) {
+      if (picked.length >= 3) break;
+      if (picked.every((j) => Math.min(Math.abs(i - j), n - Math.abs(i - j)) > n * 0.06)) picked.push(i);
+    }
+    for (const i of picked) callouts.append(mapBubble(P(i), outward(i), label(i), "static"));
+  }
   const dot = s("circle", { class: "map-dot", r: 6, visibility: "hidden" });
+  const hover = s("g", { class: "map-hover", visibility: "hidden" });
   const hit = s("rect", { x: 0, y: 0, width: W, height: H, fill: "transparent" });
-  svg.append(dot, hit);
+  svg.append(callouts, dot, hover, hit);
   box.replaceChildren(svg);
 
   const chart = {
-    showAt(i) { const p = P(Math.min(i, n - 1)); if (!p) return this.hide(); dot.setAttribute("cx", p[0]); dot.setAttribute("cy", p[1]); dot.setAttribute("visibility", "visible"); },
-    hide() { dot.setAttribute("visibility", "hidden"); },
+    showAt(i) {
+      i = Math.min(i, n - 1);
+      const p = P(i); if (!p) return this.hide();
+      dot.setAttribute("cx", p[0]); dot.setAttribute("cy", p[1]); dot.setAttribute("visibility", "visible");
+      const txt = label(i);
+      hover.replaceChildren(...(txt ? [mapBubble(p, outward(i), txt, "hover")] : []));
+      hover.setAttribute("visibility", txt ? "visible" : "hidden");
+      callouts.setAttribute("opacity", "0.35");
+    },
+    hide() { dot.setAttribute("visibility", "hidden"); hover.setAttribute("visibility", "hidden"); callouts.removeAttribute("opacity"); },
   };
   const tipEl = $("#tooltip");
   const nearest = (e) => {
@@ -751,14 +806,26 @@ function drawTrackMap(box, { geo, sel, ref, mode, tip }) {
     const i = nearest(e);
     if (i == null) { analysis.charts.forEach((c) => c.hide()); tipEl.hidden = true; return; }
     analysis.charts.forEach((c) => c.showAt(i));
-    tipEl.replaceChildren(...tip(i)); tipEl.hidden = false;
-    tipEl.style.left = `${Math.min(Math.max(8, e.clientX + 14), window.innerWidth - tipEl.offsetWidth - 8)}px`;
-    tipEl.style.top = `${Math.max(8, e.clientY - tipEl.offsetHeight - 14)}px`;
+    tipEl.hidden = true;                                  // auf der Karte spricht die Blase
   };
   hit.addEventListener("pointermove", show);
   hit.addEventListener("pointerdown", show);
   hit.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") { analysis.charts.forEach((c) => c.hide()); tipEl.hidden = true; } });
   return chart;
+}
+
+/** Sprechblase wie bei GPS-Karten: dunkle Pille mit Spitze, nach außen versetzt. */
+function mapBubble(p, [nx, ny], text, kind) {
+  const g = s("g", { class: `map-bubble ${kind}` });
+  const w = Math.max(44, text.length * 7.4 + 18), hgt = 24, off = kind === "hover" ? 26 : 22;
+  const bx = p[0] + nx * off, by = p[1] + ny * off;
+  // Spitze vom Punkt zur Blase
+  g.append(s("line", { class: "stem", x1: p[0] + nx * 5, y1: p[1] + ny * 5, x2: bx, y2: by }));
+  if (kind === "static") g.append(s("circle", { class: "pin", cx: p[0], cy: p[1], r: 4 }));
+  g.append(s("rect", { x: bx - w / 2, y: by - hgt / 2, width: w, height: hgt, rx: 12 }));
+  const t = s("text", { x: bx, y: by + 4.5, "text-anchor": "middle" }); t.textContent = text;
+  g.append(t);
+  return g;
 }
 
 function niceStep(range, target = 4) {
