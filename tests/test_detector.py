@@ -169,9 +169,9 @@ def test_trace_on_lap():
     d.lap(80000)
     d.settle()
     tr = d.laps[0].trace
-    assert tr and len(tr["t"]) == 200 and tr["v"] is None
+    assert tr and len(tr["t"]) == 800 and tr["v"] is None
     # bei 50 % der Runde ungefähr 40 s
-    assert abs(tr["t"][100] - 40000) < 1500
+    assert abs(tr["t"][400] - 40000) < 1500
     assert all(a is None or b is None or a <= b for a, b in zip(tr["t"], tr["t"][1:]))
 
 
@@ -179,8 +179,8 @@ def test_build_trace_gaps_and_wrap():
     # Outlap ab 40 %: davor None; Werte vom alten Rundenende (npos 0.99 bei t<5 s) ignoriert
     samples = [(0.99, 100, 200.0, 1.0, 0.0)] + [(0.4 + i * 0.004, 30000 + i * 400, 150.0, 0.5, 0.0) for i in range(150)]
     tr = sc.build_trace(samples)
-    assert tr["t"][0] is None and tr["t"][79] is None and tr["t"][81] is not None
-    assert tr["thr"][150] == 50 and tr["v"][150] == 150.0
+    assert tr["t"][0] is None and tr["t"][319] is None and tr["t"][324] is not None
+    assert tr["thr"][600] == 50 and tr["v"][600] == 150.0
 
 
 def test_build_trace_too_short():
@@ -190,7 +190,7 @@ def test_build_trace_too_short():
 def test_build_trace_positions():
     samples = [(i / 100, i * 800, 150.0, 1.0, 0.0, 100.0 + i, -50.0 - 2 * i) for i in range(101)]
     tr = sc.build_trace(samples)
-    assert tr["x"][100] == 150.0 and tr["z"][100] == -150.0
+    assert tr["x"][400] == 150.0 and tr["z"][400] == -150.0
     # alte 5er-Proben: keine Positionen
     tr = sc.build_trace([s[:5] for s in samples])
     assert tr["x"] is None and tr["z"] is None
@@ -221,3 +221,10 @@ def test_evo_substructs_and_physics():
             return bytes(b[o:o + n])
     t = sc.kunos_physics(M())
     assert t["g"] == [0.5, -1.2] and t["tc"] == [80, 81, 79, 78] and t["bb"] == 0.56 and t["tp"] is None
+
+
+def test_build_trace_gear_steer():
+    samples = [(i / 100, i * 800, 150.0, 1.0, 0.0, None, None, 3 if i < 50 else 4, -0.5 + i / 100) for i in range(101)]
+    tr = sc.build_trace(samples)
+    assert tr["g"][100] == 3 and tr["g"][600] == 4 and tr["x"] is None
+    assert abs(tr["st"][400] - 0.0) < 0.02

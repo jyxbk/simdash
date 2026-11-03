@@ -90,8 +90,9 @@ function renderCoach() {
     table);
 
   body.replaceChildren(tiles, cards, notes.length ? h("ul", { class: "coach-notes" }, notes) : "",
-    h("div", { class: "subchart-title" }, "Alle Kurven"), grid);
+    h("div", { class: "subchart-title" }, "Alle Kurven"), grid, h("div", { id: "corner-history", class: "corner-history" }));
   if (mapBox) drawCoachMap(mapBox, geo, corners, top);
+  renderCornerHistory();
 }
 
 function coachCard(c, rank) {
@@ -150,8 +151,9 @@ function coachTable(corners, top) {
     h("div", { class: "muted-sm" }, "Links deine Bestzeit, rechts deine beste Fahrt in dieser Kurve. Streuung = wie sehr die Kurvenzeit von Runde zu Runde schwankt."));
 }
 
-function focusCorner(no) {
-  coachState.focus = coachState.focus === no ? null : no;
+function focusCorner(no, force = false) {
+  coachState.focus = coachState.focus === no && !force ? null : no;
+  renderCornerHistory();
   for (const el of document.querySelectorAll("#coach [data-corner]")) el.classList.toggle("focus", Number(el.dataset.corner) === coachState.focus);
   const c = coachState.data && coachState.data.corners.find((x) => x.no === no);
   if (c && coachState.focus && !document.querySelector(`.coach-card[data-corner="${no}"]`)) {

@@ -816,3 +816,56 @@ details.session:not([open]) > summary { border-bottom: 0; }
 main[hidden], #overview-view[hidden], .detail-card[hidden] { display: none; }
 .card .potential { font-size: .8rem; color: var(--text-secondary); margin-top: .3rem; min-height: 1.1rem; }
 .card .potential b { color: var(--loss); font-variant-numeric: tabular-nums; }
+
+/* ===========================================================================
+   Fortschritt, Kurven-Verlauf, Notizen, Session-Bericht (v0.9)
+   =========================================================================== */
+.delta-bad { color: var(--loss); font-weight: 600; }
+.an-row { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: .75rem; margin-top: .75rem; align-items: stretch; }
+.an-row > .detail-card { margin: 0; scroll-margin-top: 4.5rem; }
+@media (max-width: 1000px) { .an-row { grid-template-columns: 1fr; } }
+.prog-head { font-size: .9rem; margin-top: .55rem; }
+.prog-deltas { color: var(--text-secondary); font-size: .84rem; margin-top: .15rem; }
+.legend .swatch { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: .35rem; vertical-align: middle; }
+.mini-box { width: 100%; }
+.mini-box svg.mini { width: 100%; height: auto; display: block; overflow: visible; }
+svg.mini .axis text { fill: var(--text-muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+svg.mini .grid { stroke: var(--grid); stroke-width: 1; }
+svg.mini .refline { stroke: var(--good); stroke-width: 1; stroke-dasharray: 4 3; opacity: .8; }
+svg.mini .reflabel { fill: var(--good); font-size: 10.5px; font-weight: 600; }
+.mini-title { font-size: .75rem; color: var(--text-muted); margin: .35rem 0 .1rem; }
+
+.corner-history { margin-top: .4rem; }
+.ch-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .4rem .8rem; margin-top: .9rem; }
+.ch-head .subchart-title { margin: 0; }
+.ch-pick { flex: 0 1 auto; }
+.ch-pick .chip { padding: .15rem .55rem; font-size: .78rem; }
+.ch-msg { margin-top: .35rem; }
+.ch-charts { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem 1rem; }
+@media (max-width: 800px) { .ch-charts { grid-template-columns: 1fr; } }
+
+.notes-form { display: flex; gap: .5rem; margin-top: .6rem; align-items: stretch; }
+.notes-form textarea { flex: 1; min-width: 0; resize: vertical; background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);
+  border-radius: 8px; padding: .45rem .6rem; font: inherit; font-size: .88rem; }
+.notes-form .primary { flex: 0 0 auto; }
+.notes-list { list-style: none; margin: .6rem 0 0; padding: 0; max-height: 260px; overflow-y: auto; }
+.notes-list li { padding: .45rem 0; border-top: 1px solid var(--grid); }
+.note-text { font-size: .9rem; white-space: pre-wrap; }
+.note-meta { display: flex; justify-content: space-between; align-items: center; font-size: .75rem; color: var(--text-muted); margin-top: .1rem; }
+.note-del { background: none; border: 0; color: var(--text-muted); cursor: pointer; font-size: .85rem; padding: .1rem .3rem; }
+.note-del:hover { color: var(--loss); }
+
+.report { grid-column: 1 / -1; margin-top: .75rem; }
+.rep-head { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; flex-wrap: wrap; }
+.rep-head .label { font-size: .75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .08em; font-weight: 700; }
+.rep-head .what { font-weight: 650; font-size: 1.02rem; margin-top: .1rem; }
+.rep-head .car { color: var(--text-secondary); font-weight: 400; }
+.rep-actions { display: flex; gap: .4rem; }
+.rep-actions .ghost { font-size: .82rem; padding: .3rem .7rem; }
+.report .insights { margin: .6rem 0 0; }
+.report .insight.pb .sub { color: var(--good); font-weight: 600; }
+.rep-coach .coach-notes { margin-top: .55rem; }
+.rep-note { color: var(--text-muted); }
+.session-side .driver-btn + .driver-btn { margin-left: -.2rem; }
+.an-row[hidden] { display: none; }
+.notes-form .primary { background: var(--text-primary); color: var(--page); border: 1px solid var(--text-primary); border-radius: 8px; padding: .3rem .9rem; font-weight: 650; cursor: pointer; }

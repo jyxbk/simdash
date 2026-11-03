@@ -161,3 +161,14 @@ def test_trackmap_from_live_positions(client):
     m = client.get("/api/trackmap", params={"game": "acevo", "track": "Nurburgring", "layout": "Touristenfahrten", "points": 1000}).json()
     assert m["source"] == "live" and 0.3 < m["coverage"] < 0.6
     assert m["x"][100] is not None and m["x"][900] is None
+
+
+def test_setup_notes(client):
+    combo = {"game": "acevo", "track": "road_atlanta", "car": "bmw_m4_gt3"}
+    r = client.post("/api/notes", json={**combo, "text": "BB 57 % besser"})
+    assert r.status_code == 200
+    nid = r.json()["id"]
+    notes = client.get("/api/notes", params=combo).json()
+    assert [n["text"] for n in notes] == ["BB 57 % besser"]
+    assert client.delete(f"/api/notes/{nid}").status_code == 200
+    assert client.get("/api/notes", params=combo).json() == []

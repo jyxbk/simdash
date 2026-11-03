@@ -298,6 +298,8 @@ function renderSessions(laps, bests) {
             `${gameName(first.game)} · ${SESSION_NAMES[first.session_type] || first.session_type || "Session"}${first.online ? " · online" : ""} · ${fmtDate(last.recorded_at)} · ${ls.length} ${ls.length === 1 ? "Runde" : "Runden"}`)),
         h("div", { class: "session-side" },
           h("div", { class: "session-best" }, "Beste Runde ", h("b", {}, sBest ? fmt(sBest) : "–")),
+          h("button", { class: "driver-btn", type: "button", title: "Bericht zu dieser Session",
+            onclick: (e) => { e.preventDefault(); e.stopPropagation(); showSessionReport(ls); } }, "Bericht"),
           h("button", { class: "driver-btn", type: "button", title: "Fahrer dieser Session ändern",
             onclick: (e) => { e.preventDefault(); e.stopPropagation(); openDriverDialog(ls, `Wer ist diese Session gefahren? · ${trackName(first)}`); } },
             "✎ ", first.driver && first.driver !== state.me ? first.driver : "Ich"))),
@@ -339,7 +341,7 @@ async function openAnalyse() {
   const empty = $("#analyse-empty");
   const hasData = bests.length > 0;
   empty.hidden = hasData;
-  for (const id of ["#coach", "#analysis", "#laptimes", ".an-head"]) $(id).hidden = !hasData;
+  for (const id of ["#coach", "#analysis", "#laptimes", ".an-head", ".an-row"]) $(id).hidden = !hasData;
   if (!hasData) {
     empty.replaceChildren(h("p", { class: "analysis-empty" }, state.loaded ? "Mit diesen Filtern gibt es keine Runden. Wähle oben ein anderes Spiel oder „Alle“." : "Lädt …"));
     return;
@@ -368,6 +370,8 @@ async function refreshDetail(c) {
   drawChart(laps, c.best_valid);
   renderDetailTable(laps, c.best_valid);
   const keepSel = analysis.c && comboKey(analysis.c) === comboKey(c) ? [$("#pick-lap").value, $("#pick-ref").value] : null;
+  renderProgress();
+  loadNotes(c);
   await loadAnalysis(c);
   loadCoach(c);
   if (keepSel && analysis.traced.some((l) => String(l.id) === keepSel[0]) && analysis.traced.some((l) => String(l.id) === keepSel[1])) {
@@ -525,6 +529,7 @@ async function load() {
     renderTiles(st);
     renderBests(bests, laps);
     renderSessions(laps, bests);
+    renderReport();
     if (currentTab() === "analyse") await openAnalyse();
   } catch (e) {
     $("#status").textContent = "Server nicht erreichbar";
@@ -586,7 +591,7 @@ let resizeTimer;
 window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
-    if (state.detail && currentTab() === "analyse") { drawChart(state.detail.laps, state.detail.pb); if (analysis.traced.length) renderAnalysis(); renderCoach(); }
+    if (state.detail && currentTab() === "analyse") { drawChart(state.detail.laps, state.detail.pb); if (analysis.traced.length) renderAnalysis(); renderCoach(); renderProgress(); }
   }, 150);
 });
 
@@ -632,7 +637,8 @@ async function loadAnalysis(c) {
   analysis.geo = null;
   if (!traced.some((l) => l.trace.x && l.trace.x.filter((v) => v != null).length > 100)) {
     try {
-      const tm = await getJSON(`/api/trackmap?${new URLSearchParams({ game: c.game, track: c.track, layout: c.layout })}`);
+      const pts = traced.length ? Math.max(50, Math.min(1000, traced[0].trace.t.length)) : 200;
+      const tm = await getJSON(`/api/trackmap?${new URLSearchParams({ game: c.game, track: c.track, layout: c.layout, points: pts })}`);
       if (tm.x) analysis.geo = { id: "trackmap", trace: tm };
     } catch { /* ohne Karte */ }
   }
@@ -779,6 +785,7 @@ function rampColor(f) {
 /** Draufsicht der Strecke aus x/z; Segmente nach Zeitverlust (rot/blau) oder Tempo (blau hell = schnell). */
 function drawTrackMap(box, { geo, sel, ref, mode, tip }) {
   const X = geo.trace.x, Z = geo.trace.z, n = X.length;
+  const q = Math.max(1, Math.round(sel.trace.t.length / 200));      // Glättung an Punktdichte anpassen
   const idx = [...Array(n).keys()].filter((i) => X[i] != null && Z[i] != null);
   const W = box.clientWidth || 600, H = box.clientHeight || 320, pad = 26;
   const xs = idx.map((i) => X[i]), zs = idx.map((i) => Z[i]);
@@ -795,7 +802,8 @@ function drawTrackMap(box, { geo, sel, ref, mode, tip }) {
     const raw = sel.trace.v.map((a, i) => (a != null && ref.trace.v[i] != null ? a - ref.trace.v[i] : null));
     vd = raw.map((v, i) => {
       if (v == null) return null;
-      const w = [-2, -1, 0, 1, 2].map((o) => raw[i + o]).filter((x) => x != null);
+      const w = [];
+      for (let o = -2 * q; o <= 2 * q; o++) if (raw[i + o] != null) w.push(raw[i + o]);
       return w.reduce((a, b) => a + b, 0) / w.length;
     });
   }
@@ -817,7 +825,7 @@ function drawTrackMap(box, { geo, sel, ref, mode, tip }) {
   } else if (mode === "delta") {
     const d = sel.trace.t.map((v, i) => (v != null && ref.trace.t[i] != null ? v - ref.trace.t[i] : null));
     // Verlust je Strecke = Steigung des Abstands über ±4 Punkte (glättet das Messrauschen)
-    const W2 = 4;
+    const W2 = 4 * q;
     const rate = d.map((_, i) => {
       const a = d[Math.max(0, i - W2)], b = d[Math.min(n - 1, i + 1 + W2)];
       const span = Math.min(n - 1, i + 1 + W2) - Math.max(0, i - W2);

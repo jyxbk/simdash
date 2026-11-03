@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>SimDash</title>
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/style.css?v=0.8.0">
+  <link rel="stylesheet" href="/static/style.css?v=0.9.0">
 </head>
 <body class="viz-root" data-palette="#3987e5">
   <header class="topbar">
@@ -39,6 +39,8 @@
 
     <section class="tiles" id="tiles" aria-label="Kennzahlen"></section>
 
+    <section id="report" class="detail-card report" aria-label="Session-Bericht" hidden></section>
+
     <section aria-labelledby="h-bests">
       <div class="section-head">
         <h2 id="h-bests">Bestzeiten</h2>
@@ -63,6 +65,8 @@
       </label>
       <nav class="chips an-jump" aria-label="Springen zu">
         <a class="chip" href="#coach" data-jump="coach">Coach</a>
+        <a class="chip" href="#progress" data-jump="progress">Fortschritt</a>
+        <a class="chip" href="#notes" data-jump="notes">Notizen</a>
         <a class="chip" href="#analysis" data-jump="analysis">Rundenvergleich</a>
         <a class="chip" href="#laptimes" data-jump="laptimes">Rundenzeiten</a>
       </nav>
@@ -78,6 +82,23 @@
       </div>
       <div id="coach-body"></div>
     </section>
+
+    <div class="an-row">
+      <section class="detail-card" id="progress" aria-labelledby="h-progress">
+        <div class="detail-title" id="h-progress">Fortschritt</div>
+        <div class="muted-sm">Bestzeit und Median je Session</div>
+        <div id="progress-body"></div>
+      </section>
+      <section class="detail-card notes" id="notes" aria-labelledby="h-notes">
+        <div class="detail-title" id="h-notes">Setup &amp; Notizen</div>
+        <div class="muted-sm">Für diese Strecke mit diesem Auto</div>
+        <form id="notes-form" class="notes-form">
+          <textarea id="notes-text" rows="2" maxlength="2000" placeholder="z. B. Bremsbalance 57 % besser, TC 3, Kurve 3 am Schild bremsen" aria-label="Neue Notiz"></textarea>
+          <button type="submit" class="primary">Speichern</button>
+        </form>
+        <ul class="notes-list" id="notes-list"></ul>
+      </section>
+    </div>
 
     <section class="detail-card analysis" id="analysis" aria-labelledby="h-analysis">
       <div class="analysis-head">
@@ -214,8 +235,9 @@
     </div>
   </template>
 
-  <script src="/static/app.js?v=0.8.0"></script>
-  <script src="/static/coach.js?v=0.8.0"></script>
-  <script src="/static/live.js?v=0.8.0"></script>
+  <script src="/static/app.js?v=0.9.0"></script>
+  <script src="/static/coach.js?v=0.9.0"></script>
+  <script src="/static/progress.js?v=0.9.0"></script>
+  <script src="/static/live.js?v=0.9.0"></script>
 </body>
 </html>

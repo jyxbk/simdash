@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "0.5.0b1"
+VERSION = "0.6.0"
 POLL_HZ = 50
 
 log = logging.getLogger("simdash")
@@ -459,11 +459,11 @@ class Snapshot:
     tele: dict | None = None       # erweiterte Telemetrie nur für den Live-Tab
 
 
-TRACE_STEP = 0.005   # Verlauf alle 0,5 % der Runde (200 Punkte)
+TRACE_STEP = 0.00125  # Verlauf alle 0,125 % der Runde (800 Punkte, ~5 m auf 4 km)
 
 
 def build_trace(samples: list[tuple]) -> dict | None:
-    """Rohwerte (npos, ms, kmh, gas, bremse[, x, z]) auf ein festes Raster entlang der Runde legen.
+    """Rohwerte (npos, ms, kmh, gas, bremse[, x, z[, gang, lenkung]]) auf ein festes Raster legen.
 
     t[i] = Rundenzeit in ms bei Position i*TRACE_STEP. Lücken (z. B. Outlap aus der Box)
     bleiben None. Rückwärts (Dreher) und Werte vom Rundenende davor werden verworfen.
@@ -475,11 +475,11 @@ def build_trace(samples: list[tuple]) -> dict | None:
             continue
         if n <= last_n:
             continue
-        pts.append(tuple(smp) + (None,) * (7 - len(smp)))
+        pts.append(tuple(smp) + (None,) * (9 - len(smp)))
         last_n = n
     if len(pts) < 20 or pts[-1][0] - pts[0][0] < 0.5:
         return None
-    keys = ("t", "v", "thr", "brk", "x", "z")
+    keys = ("t", "v", "thr", "brk", "x", "z", "g", "st")
     out = {"step": TRACE_STEP, **{k: [] for k in keys}}
     j = 0
     for i in range(int(round(1 / TRACE_STEP))):
@@ -504,7 +504,10 @@ def build_trace(samples: list[tuple]) -> dict | None:
         out["brk"].append(lerp(4, 100))
         out["x"].append(lerp(5, 1.0, 1))
         out["z"].append(lerp(6, 1.0, 1))
-    for k in ("v", "thr", "brk", "x", "z"):
+        near = a if f < 0.5 else b                       # Gang nicht mitteln
+        out["g"].append(near[7] if near[7] is not None else None)
+        out["st"].append(lerp(8, 1.0, 2) if a[8] is not None and b[8] is not None else None)
+    for k in ("v", "thr", "brk", "x", "z", "g", "st"):
         if all(x is None for x in out[k]):
             out[k] = None
     return out
@@ -665,7 +668,7 @@ class LapDetector:
             self.lap_max_current = max(self.lap_max_current, s.current_ms)
             if s.current_ms > 0:
                 self.samples.append((s.npos, s.current_ms, s.speed_kmh, s.throttle, s.brake,
-                                     s.pos_x, s.pos_z))
+                                     s.pos_x, s.pos_z, s.gear, (s.tele or {}).get("steer")))
             # Boxenausfahrt liegt meist kurz hinter der Linie -> Boxengasse in der
             # ersten Rundenhälfte = Outlap
             if s.in_pit_lane and s.npos < 0.5:

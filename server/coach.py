@@ -50,9 +50,39 @@ def _filled(arr: list | None, n: int) -> list[float] | None:
     return [float(x) for x in out]
 
 
-def _smooth(v: list[float]) -> list[float]:
+def _smooth(v: list[float], w: int = 1) -> list[float]:
+    """Dreiecks-Glättung über ±w Punkte (rundum)."""
     n = len(v)
-    return [(v[(i - 1) % n] + 2 * v[i] + v[(i + 1) % n]) / 4 for i in range(n)]
+    ks = [(d, w + 1 - abs(d)) for d in range(-w, w + 1)]
+    tot = sum(k for _, k in ks)
+    return [sum(v[(i + d) % n] * k for d, k in ks) / tot for i in range(n)]
+
+
+def resample(trace: dict, n: int) -> dict:
+    """Verlauf auf n Punkte bringen (alte Runden mit 200, neue mit 800 Punkten vergleichbar)."""
+    m = len(trace.get("t") or [])
+    if not m or m == n:
+        return trace
+    out = {"step": 1 / n}
+    for k, arr in trace.items():
+        if not isinstance(arr, list) or len(arr) != m:
+            continue
+        res = []
+        for i in range(n):
+            pos = i * m / n
+            lo = int(pos)
+            hi = min(lo + 1, m - 1)
+            f = pos - lo
+            a, b = arr[lo], arr[hi]
+            if k == "g":
+                res.append(a if f < 0.5 or b is None else b)
+            elif a is None or b is None or hi == lo:
+                res.append(a if f < 0.5 else (b if hi != lo else a))
+            else:
+                val = a + (b - a) * f
+                res.append(int(round(val)) if k in ("t", "thr", "brk") else round(val, 2))
+        out[k] = res
+    return out
 
 
 def track_length(lap: dict) -> float:
@@ -68,12 +98,12 @@ def track_length(lap: dict) -> float:
     return dist * (len(t) - 1) / max(1, covered) * len(t) / (len(t) - 1) if covered else 0.0
 
 
-def find_corners(v: list[float], drop: float = DROP_KMH) -> list[dict]:
+def find_corners(v: list[float], drop: float = DROP_KMH, w: int = 1) -> list[dict]:
     """Kurven = Tempo-Minima (Spitzen-Suche mit Hysterese), rundum ab der schnellsten Stelle.
 
     Liefert je Kurve apex (Mindesttempo) und start (Tempo-Spitze davor = Anbremsen)."""
     n = len(v)
-    s = _smooth(v)
+    s = _smooth(v, w)
     off = max(range(n), key=lambda i: s[i])
     r = s[off:] + s[:off]
     maxima, minima = [], []
@@ -123,22 +153,23 @@ def _cross(arr: list | None, a: int, b: int, thr: float, rising: bool = True) ->
 
 
 def _metrics(lap: dict, c: dict, n: int) -> dict:
+    q = max(1, round(n / 200))          # Fenster in Punkten, auf 200er-Raster abgestimmt
     tr = lap["trace"]
     v = _filled(tr.get("v"), n)
     brk = _filled(tr.get("brk"), n)
     thr = _filled(tr.get("thr"), n)
     a, apex, end = c["start"], c["apex"], c["end"]
     # Mindesttempo in der Nähe des Scheitels suchen (eigene Linie kann leicht verschoben sein)
-    win = [(apex + d) % n for d in range(-4, 5)]
+    win = [(apex + d) % n for d in range(-4 * q, 4 * q + 1)]
     vmin_i = min(win, key=lambda i: v[i])
-    m: dict[str, Any] = {"v_min": round(v[vmin_i], 1), "v_entry": round(max(v[(a + d) % n] for d in range(-2, 3)), 1)}
-    exit_i = (vmin_i + max(2, ((end - vmin_i) % n) // 2)) % n
+    m: dict[str, Any] = {"v_min": round(v[vmin_i], 1), "v_entry": round(max(v[(a + d) % n] for d in range(-2 * q, 2 * q + 1)), 1)}
+    exit_i = (vmin_i + max(2 * q, ((end - vmin_i) % n) // 2)) % n
     m["v_exit"] = round(v[exit_i], 1)
     if brk is not None and max(brk[(a + k) % n] for k in range((apex - a) % n + 1)) >= BRAKE_ON:
-        m["brake"] = _cross(brk, (a - 6) % n, apex, BRAKE_ON)
+        m["brake"] = _cross(brk, (a - 6 * q) % n, apex, BRAKE_ON)
         m["brake_max"] = round(max(brk[(a + k) % n] for k in range((apex - a) % n + 1)))
     if thr is not None:
-        m["full_throttle"] = _cross(thr, vmin_i - 2, end, THROTTLE_FULL)
+        m["full_throttle"] = _cross(thr, (vmin_i - 2 * q) % n, end, THROTTLE_FULL)
     return m
 
 
@@ -202,6 +233,9 @@ def analyze(laps: list[dict]) -> dict:
         }
     if not usable:
         return result
+    n = max(len(l["trace"]["t"]) for l in usable)
+    for l in usable:
+        l["trace"] = resample(l["trace"], n)
     for l in usable:
         t = list(l["trace"]["t"])
         if t[0] is None:
@@ -209,10 +243,8 @@ def analyze(laps: list[dict]) -> dict:
         l["_t"] = _filled(t, len(t))
     ref = min(usable, key=lambda l: l["lap_time_ms"])
     clean = [l for l in usable if l["lap_time_ms"] <= ref["lap_time_ms"] * CLEAN_FACTOR]
-    n = len(ref["trace"]["t"])
-    clean = [l for l in clean if len(l["trace"]["t"]) == n]
     v_ref = _filled(ref["trace"]["v"], n)
-    corners = find_corners(v_ref)
+    corners = find_corners(v_ref, w=max(1, round(n / 200)))
     length = statistics.median([track_length(l) for l in clean])
     m_per_idx = length / n
     result.update({"laps_used": len(clean), "ref": {"id": ref["id"], "lap_number": ref.get("lap_number"),
@@ -260,6 +292,7 @@ def analyze(laps: list[dict]) -> dict:
             "best_lap": {"id": best_l["id"], "lap_number": best_l.get("lap_number"), "lap_time_ms": best_l["lap_time_ms"]},
             "ref_metrics": _round_metrics(rm, c["apex"], n, m_per_idx), "best_metrics": _round_metrics(bm, c["apex"], n, m_per_idx),
             "phase": phase, "tips": tips or _phase_tip(phase, gain),
+            "history": _history(usable, c, n, m_per_idx, ref["lap_time_ms"] * CLEAN_FACTOR),
         })
     result["corners"] = out
     covered = sum(c["ref_ms"] for c in out)
@@ -271,6 +304,20 @@ def analyze(laps: list[dict]) -> dict:
         worst = max(out, key=lambda c: c["spread_ms"])
         result["least_consistent"] = worst["no"]
     return result
+
+
+def _history(laps: list[dict], c: dict, n: int, m_per_idx: float, clean_max: float) -> list[dict]:
+    """Je Runde (chronologisch): Kurvenzeit, Mindesttempo, Bremspunkt – zeigt, ob ein Tipp wirkt."""
+    out = []
+    for l in sorted(laps, key=lambda l: l.get("recorded_at") or ""):
+        ms = _seg_time(l["_t"], c["start"], c["end"], l["lap_time_ms"]) if c["start"] != c["end"] else l["lap_time_ms"]
+        if ms is None or ms <= 0:
+            continue
+        m = _round_metrics(_metrics(l, c, n), c["apex"], n, m_per_idx)
+        out.append({"id": l["id"], "lap_number": l.get("lap_number"), "recorded_at": l.get("recorded_at"),
+                    "session_uid": l.get("session_uid") or "", "ms": round(ms), "clean": l["lap_time_ms"] <= clean_max,
+                    "v_min": m.get("v_min"), "brake_m": m.get("brake_m")})
+    return out
 
 
 def _phase_tip(phase: dict | None, gain: float) -> list[dict]:

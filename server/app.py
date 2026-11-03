@@ -72,6 +72,18 @@ CREATE TABLE IF NOT EXISTS track_shapes (
     updated  TEXT NOT NULL,
     PRIMARY KEY (game, track, layout)
 );
+-- Setup- und Fahrnotizen je Strecke/Auto (z. B. "Bremsbalance 57 % war besser")
+CREATE TABLE IF NOT EXISTS setup_notes (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    game    TEXT NOT NULL,
+    track   TEXT NOT NULL,
+    layout  TEXT NOT NULL DEFAULT '',
+    car     TEXT NOT NULL,
+    driver  TEXT NOT NULL DEFAULT '',
+    text    TEXT NOT NULL,
+    created TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notes_combo ON setup_notes(game, track, layout, car);
 CREATE TABLE IF NOT EXISTS lap_traces (
     uid   TEXT PRIMARY KEY REFERENCES laps(uid) ON DELETE CASCADE,
     data  TEXT NOT NULL
@@ -105,6 +117,8 @@ class Trace(BaseModel):
     brk: list[int | None] | None = Field(default=None, max_length=1000)
     x: list[float | None] | None = Field(default=None, max_length=1000)   # Weltkoordinaten (m)
     z: list[float | None] | None = Field(default=None, max_length=1000)
+    g: list[int | None] | None = Field(default=None, max_length=1000)     # Gang (-1 R, 0 N)
+    st: list[float | None] | None = Field(default=None, max_length=1000)  # Lenkung −1..1
 
 
 class LapIn(BaseModel):
@@ -459,6 +473,10 @@ def traces(game: str, track: str, car: str, layout: str = "", driver: str | None
         lap = row_to_lap(d)
         lap["trace"] = trace
         out.append(lap)
+    # alte (200) und neue Runden (800 Punkte) auf ein Raster, damit Vergleiche Punkt für Punkt gehen
+    n = max((len(l["trace"].get("t") or []) for l in out), default=0)
+    for l in out:
+        l["trace"] = coach.resample(l["trace"], n)
     return out
 
 
@@ -525,9 +543,14 @@ def trackmap(game: str, track: str, layout: str = "", points: int = Query(defaul
 
 
 @app.get("/api/coach")
-def coach_view(game: str, track: str, car: str, layout: str = "", driver: str | None = None) -> dict:
-    """Verbesserungspotenzial je Kurve: Bestzeit gegen deine beste Fahrt in jeder Kurve."""
+def coach_view(game: str, track: str, car: str, layout: str = "", driver: str | None = None,
+               session_uid: str | None = None) -> dict:
+    """Verbesserungspotenzial je Kurve: Bestzeit gegen deine beste Fahrt in jeder Kurve.
+
+    session_uid: nur diese Session auswerten (Session-Bericht)."""
     laps = traces(game=game, track=track, car=car, layout=layout, driver=driver, limit=300)
+    if session_uid:
+        laps = [l for l in laps if l.get("session_uid") == session_uid]
     return coach.analyze(laps)
 
 
@@ -622,6 +645,41 @@ def delete_lap(lap_id: int) -> dict:
         cur = con.execute("DELETE FROM laps WHERE id=?", (lap_id,))
     if not cur.rowcount:
         raise HTTPException(404, "Runde nicht gefunden")
+    return {"ok": True}
+
+
+class SetupNoteIn(BaseModel):
+    game: str = Field(min_length=1, max_length=40)
+    track: str = Field(min_length=1, max_length=80)
+    layout: str = Field(default="", max_length=80)
+    car: str = Field(min_length=1, max_length=120)
+    driver: str = Field(default="", max_length=80)
+    text: str = Field(min_length=1, max_length=2000)
+
+
+@app.get("/api/notes")
+def list_notes(game: str, track: str, car: str, layout: str = "") -> list[dict]:
+    with db() as con:
+        rows = con.execute("SELECT * FROM setup_notes WHERE game=? AND track=? AND layout=? AND car=? "
+                           "ORDER BY created DESC, id DESC", (game, track, layout, car)).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/notes", dependencies=[Depends(require_lan)])
+def add_note(body: SetupNoteIn) -> dict:
+    created = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with db() as con:
+        cur = con.execute("INSERT INTO setup_notes (game, track, layout, car, driver, text, created) VALUES (?,?,?,?,?,?,?)",
+                          (body.game, body.track, body.layout, body.car, body.driver.strip(), body.text.strip(), created))
+    return {"id": cur.lastrowid, "created": created}
+
+
+@app.delete("/api/notes/{note_id}", dependencies=[Depends(require_lan)])
+def delete_note(note_id: int) -> dict:
+    with db() as con:
+        cur = con.execute("DELETE FROM setup_notes WHERE id=?", (note_id,))
+    if not cur.rowcount:
+        raise HTTPException(404, "Notiz nicht gefunden")
     return {"ok": True}
 
 
