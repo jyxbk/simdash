@@ -118,3 +118,13 @@ def test_live_roundtrip(client):
     got = client.get("/api/live").json()
     assert got["data"]["npos"] == 0.5 and got["age_s"] < 5 and got["seq"] >= 1
     assert client.post("/api/live", headers=AUTH, content="x" * 5000).status_code == 413
+
+
+def test_trackmap_from_other_car(client):
+    tr = {"step": 0.005, "t": [i * 400 for i in range(200)], "x": [float(i) for i in range(200)], "z": [0.0] * 200}
+    lp = lap("cccccccc1", 81000, trace=tr)
+    lp["car"] = "anderes_auto"
+    client.post("/api/laps", headers=AUTH, json=[lp])
+    m = client.get("/api/trackmap", params={"game": "acevo", "track": "road_atlanta"}).json()
+    assert m["x"][199] == 199.0
+    assert client.get("/api/trackmap", params={"game": "acevo", "track": "spa"}).json()["x"] is None

@@ -517,6 +517,13 @@ async function loadAnalysis(c) {
   analysis.c = c;
   const traced = await getJSON(`/api/traces?${new URLSearchParams({ game: c.game, track: c.track, layout: c.layout, car: c.car })}`);
   analysis.traced = traced;
+  analysis.geo = null;
+  if (!traced.some((l) => l.trace.x && l.trace.x.filter((v) => v != null).length > 100)) {
+    try {
+      const tm = await getJSON(`/api/trackmap?${new URLSearchParams({ game: c.game, track: c.track, layout: c.layout })}`);
+      if (tm.x) analysis.geo = { id: "trackmap", trace: tm };
+    } catch { /* ohne Karte */ }
+  }
   const pbId = c.best_valid && c.best_valid.id;
   const pickers = document.querySelector("#analysis .pickers");
   if (!traced.length) {
@@ -573,7 +580,7 @@ function renderAnalysis() {
   const kids = [tiles];
 
   // 0) Streckenkarte (nur Runden mit Positionsdaten, Collector ab 0.3)
-  const geo = [sel, ref, ...traced].find((l) => l.trace.x && l.trace.z && l.trace.x.filter((v) => v != null).length > 100);
+  const geo = [sel, ref, ...traced].find((l) => l.trace.x && l.trace.z && l.trace.x.filter((v) => v != null).length > 100) || analysis.geo;
   let mapBox = null, mapMode = analysis.mapMode || "delta";
   if (sel.id === ref.id) mapMode = "speed";
   if (mapMode === "speed" && !sel.trace.v) mapMode = "delta";
@@ -593,7 +600,7 @@ function renderAnalysis() {
       h("div", { class: "legend", id: "map-legend" }), mapBox);
   } else {
     kids.push(h("div", { class: "subchart-title" }, "Streckenkarte"),
-      h("p", { class: "analysis-empty" }, "Die Karte gibt es für Runden ab Collector 0.3 (AC EVO, ACC, Assetto Corsa). Collector aktualisieren und neu starten, dann erscheint sie nach der nächsten Runde."));
+      h("p", { class: "analysis-empty" }, "Für diese Strecke gibt es noch keine Streckenform. Fahr eine Runde mit dem neuen Collector (ab 0.4, egal welches Auto) – danach haben auch alle alten Runden hier eine Karte. Geht mit AC EVO, ACC und Assetto Corsa, nicht mit iRacing."));
   }
 
   // 1) Delta über die Runde

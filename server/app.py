@@ -304,6 +304,26 @@ def traces(game: str, track: str, car: str, layout: str = "",
     return out
 
 
+@app.get("/api/trackmap")
+def trackmap(game: str, track: str, layout: str = "") -> dict:
+    """Streckenform (x/z je 0,5 % der Runde) aus der neuesten Runde mit Positionsdaten –
+    egal mit welchem Auto. So bekommen auch alte Runden ohne Position eine Karte."""
+    with db() as con:
+        rows = con.execute(
+            """SELECT t.data FROM laps l JOIN lap_traces t ON t.uid = l.uid
+               WHERE l.game=? AND l.track=? AND l.layout=? AND t.data LIKE '%"x":[%'
+               ORDER BY COALESCE(l.valid,1) DESC, l.recorded_at DESC LIMIT 20""",
+            (game, track, layout),
+        ).fetchall()
+    best = None
+    for r in rows:
+        d = json.loads(r["data"])
+        n = sum(v is not None for v in (d.get("x") or []))
+        if n > 100 and (best is None or n > best[0]):
+            best = (n, {"step": d["step"], "x": d["x"], "z": d["z"]})
+    return best[1] if best else {"x": None, "z": None}
+
+
 @app.get("/api/stats")
 def stats(game: str | None = None, track: str | None = None, car: str | None = None) -> dict:
     """Kennzahlen für die Kopfzeile."""

@@ -90,7 +90,11 @@ async function loadPb() {
     if (live.combo !== c) return;
     const counting = traced.filter(isCounting).sort((a, b) => a.lap_time_ms - b.lap_time_ms);
     const pb = counting[0] || null;
-    const geo = [pb, ...traced].find((l) => l && l.trace.x && l.trace.x.filter((v) => v != null).length > 100) || null;
+    let geo = [pb, ...traced].find((l) => l && l.trace.x && l.trace.x.filter((v) => v != null).length > 100) || null;
+    if (!geo) {
+      const tm = await getJSON(`/api/trackmap?${new URLSearchParams({ game: c.game, track: c.track, layout: c.layout })}`).catch(() => ({}));
+      if (tm.x) geo = { id: "trackmap", trace: tm };
+    }
     const changed = !live.pb || !pb || live.pb.id !== pb.id;
     live.pb = pb;
     live.pbSectors = pb ? sectorTimes(pb) : null;
