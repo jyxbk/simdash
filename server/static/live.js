@@ -66,7 +66,7 @@ function onLive(msg) {
 
   const combo = { game: d.game, track: d.track, layout: d.layout || "", car: d.car };
   if (!live.combo || comboKey(live.combo) !== comboKey(combo)) {
-    live.combo = combo; live.pb = null; live.geo = null; live.pbSectors = null; live.map = null; live.laps = [];
+    live.combo = combo; live.pb = null; live.geo = null; live.rows = new Set(); live.pbSectors = null; live.map = null; live.laps = [];
     $("#lv-map").replaceChildren();
     loadPb();
     loadLaps();
@@ -291,7 +291,8 @@ function renderInputs(d) {
   const rpmBar = $("#lv-rpm");
   rpmBar.parentElement.hidden = d.rpm_pct == null;
   if (d.rpm_pct != null) { rpmBar.style.width = `${Math.round(d.rpm_pct * 100)}%`; rpmBar.classList.toggle("hot", d.rpm_pct > 0.94); }
-  $("#lv-rpm-txt").textContent = d.rpm ? `${d.rpm.toLocaleString("de-DE")} U/min` : "";
+  if (d.rpm > 0) live.rpmTxt = `${d.rpm.toLocaleString("de-DE")} U/min`;
+  $("#lv-rpm-txt").textContent = live.rpmTxt || "";
   for (const [k, id] of [["throttle", "thr"], ["brake", "brk"]]) {
     const v = d[k];
     $(`#lv-${id}`).style.width = v == null ? "0" : `${Math.round(v * 100)}%`;
@@ -550,22 +551,35 @@ function renderAssist(t) {
   $("#lv-steer-txt").textContent = t.steer_deg != null ? `Lenkung ${t.steer_deg > 0 ? "rechts" : t.steer_deg < 0 ? "links" : "gerade"} ${Math.abs(t.steer_deg)}°` : `Lenkung ${Math.round(st * 100)} %`;
 }
 
+/** Zeilen, die einmal Werte hatten, bleiben stehen (sonst springt die Liste beim Gaswegnehmen). */
+live.rows = new Set();
+function stickyRows(defs) {
+  const items = [];
+  for (const [key, label, val, show, extra] of defs) {
+    if (show) live.rows.add(key);
+    if (live.rows.has(key)) items.push(kv(label, show ? val : "–", show ? extra : ""));
+  }
+  return items;
+}
+
 function renderEngine(t, d) {
   const card = $("#lv-engine-card");
-  const items = [];
-  if (t.water != null && t.water > 0) items.push(kv("Wasser", `${num(t.water)} °C`));
-  if (t.oil != null && t.oil > 0) items.push(kv("Öl", `${num(t.oil)} °C`));
-  if (t.oil_p != null && t.oil_p > 0) items.push(kv("Öldruck", `${num(t.oil_p, 1)} bar`));
-  if (t.boost != null && t.boost > 0.01) items.push(kv("Ladedruck", `${num(t.boost, 2)} bar`));
-  if (t.bhp > 0) items.push(kv("Leistung", `${num(t.bhp)} PS`));
-  if (t.torque > 0) items.push(kv("Drehmoment", `${num(t.torque)} Nm`));
-  if (t.max_rpm && d.rpm) items.push(kv("Drehzahl", `${num(d.rpm)} / ${num(t.max_rpm)}`));
-  if (t.fuel != null && t.fuel > 0) items.push(kv("Sprit", `${num(t.fuel, 1)} l`));
+  if (d.rpm > 0) live.lastRpm = d.rpm;
   const fuelOk = t.fuel_lap > 0.3;                      // erst nach echter Messung (im Stand Unsinn)
-  if (fuelOk) items.push(kv("Verbrauch", `${num(t.fuel_lap, 2)} l/Runde`));
-  if (fuelOk && t.fuel_laps > 0) items.push(kv("reicht für", `${num(t.fuel_laps, 1)} Runden`, t.fuel_laps < 2 ? "warn" : ""));
-  const dmg = (t.dmg || []).filter((v) => v > 0.01);
-  if (dmg.length) items.push(kv("Schaden", `${num(Math.max(...dmg) * 100)} %`, "warn"));
+  const dmg = (t.dmg || []).filter((v) => v != null);
+  const items = stickyRows([
+    ["water", "Wasser", `${num(t.water)} °C`, t.water > 0],
+    ["oil", "Öl", `${num(t.oil)} °C`, t.oil > 0],
+    ["oil_p", "Öldruck", `${num(t.oil_p, 1)} bar`, t.oil_p > 0],
+    ["boost", "Ladedruck", `${num(Math.max(0, t.boost || 0), 2)} bar`, t.boost != null && (t.boost > 0.01 || live.rows.has("boost"))],
+    ["bhp", "Leistung", `${num(Math.max(0, t.bhp || 0))} PS`, t.bhp != null && (t.bhp > 0 || live.rows.has("bhp"))],
+    ["torque", "Drehmoment", `${num(Math.max(0, t.torque || 0))} Nm`, t.torque != null && (t.torque > 0 || live.rows.has("torque"))],
+    ["rpm", "Drehzahl", `${num(live.lastRpm)} / ${num(t.max_rpm)}`, !!(t.max_rpm && live.lastRpm)],
+    ["fuel", "Sprit", `${num(t.fuel, 1)} l`, t.fuel > 0],
+    ["fuel_lap", "Verbrauch", `${num(t.fuel_lap, 2)} l/Runde`, fuelOk],
+    ["fuel_laps", "reicht für", `${num(t.fuel_laps, 1)} Runden`, fuelOk && t.fuel_laps > 0, t.fuel_laps < 2 ? "warn" : ""],
+    ["dmg", "Schaden", `${num(Math.max(0, ...dmg, 0) * 100)} %`, dmg.length > 0 && (Math.max(...dmg) > 0.01 || live.rows.has("dmg")), Math.max(0, ...dmg) > 0.01 ? "warn" : ""],
+  ]);
   card.hidden = !items.length;
   $("#lv-engine").replaceChildren(...items);
 }
