@@ -2,3 +2,4 @@
 __pycache__/
 *.db*
 server/static/simdash-collector.zip
+.pytest_cache/
