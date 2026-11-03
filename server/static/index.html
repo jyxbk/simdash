@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>SimDash</title>
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/style.css?v=0.4.2">
+  <link rel="stylesheet" href="/static/style.css?v=0.5">
 </head>
 <body class="viz-root" data-palette="#3987e5">
   <header class="topbar">
@@ -134,6 +134,39 @@
       </div>
     </div>
 
+    <section class="lv-tele" id="lv-tele" aria-label="Erweiterte Telemetrie">
+      <div class="lv-card lv-trace">
+        <div class="lv-trace-head">
+          <div class="subchart-title">Letzte 20 Sekunden</div>
+          <div class="legend" id="lv-trace-legend"></div>
+        </div>
+        <div class="lv-trace-box" id="lv-trace-speed" role="img" aria-label="Tempo der letzten 20 Sekunden"></div>
+        <div class="lv-trace-box small" id="lv-trace-pedals" role="img" aria-label="Gas und Bremse der letzten 20 Sekunden"></div>
+      </div>
+      <div class="lv-tele-grid">
+        <div class="lv-card" id="lv-tyres-card">
+          <div class="subchart-title">Reifen &amp; Bremsen <span class="muted-sm" id="lv-compound"></span></div>
+          <div class="lv-tyres" id="lv-tyres"></div>
+          <div class="legend" id="lv-tyre-legend"></div>
+        </div>
+        <div class="lv-card" id="lv-g-card">
+          <div class="subchart-title">G-Kräfte</div>
+          <div class="lv-g" id="lv-g" role="img" aria-label="G-Kräfte quer und längs"></div>
+          <div class="lv-g-vals" id="lv-g-vals"></div>
+        </div>
+        <div class="lv-card" id="lv-assist-card">
+          <div class="subchart-title">Fahrhilfen &amp; Lenkung</div>
+          <div class="lv-kv" id="lv-assist"></div>
+          <div class="lv-steer" aria-hidden="true"><div class="lv-steer-zero"></div><div id="lv-steer"></div></div>
+          <div class="muted-sm" id="lv-steer-txt"></div>
+        </div>
+        <div class="lv-card" id="lv-engine-card">
+          <div class="subchart-title">Motor &amp; Sprit</div>
+          <div class="lv-kv" id="lv-engine"></div>
+        </div>
+      </div>
+    </section>
+
     <div class="lv-card">
       <div class="subchart-title">Runden dieser Session</div>
       <div id="lv-laps"></div>
@@ -155,7 +188,7 @@
     </div>
   </template>
 
-  <script src="/static/app.js?v=0.4.2"></script>
-  <script src="/static/live.js?v=0.4.2"></script>
+  <script src="/static/app.js?v=0.5"></script>
+  <script src="/static/live.js?v=0.5"></script>
 </body>
 </html>

@@ -117,7 +117,7 @@ def test_live_roundtrip(client):
     assert r.status_code == 200
     got = client.get("/api/live").json()
     assert got["data"]["npos"] == 0.5 and got["age_s"] < 5 and got["seq"] >= 1
-    assert client.post("/api/live", headers=AUTH, content="x" * 5000).status_code == 413
+    assert client.post("/api/live", headers=AUTH, content="x" * 20000).status_code == 413
 
 
 def test_trackmap_from_other_car(client):

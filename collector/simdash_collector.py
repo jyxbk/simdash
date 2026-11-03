@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "0.4.0b1"
+VERSION = "0.5.0b1"
 POLL_HZ = 50
 
 log = logging.getLogger("simdash")
@@ -63,11 +63,50 @@ def _blob(name: str, size: int) -> type[Structure]:
     return type(name, (Structure,), {"_pack_": 4, "_layout_": "ms", "_fields_": [("raw", c_uint32 * (size // 4))]})
 
 
-EvoTyre = _blob("EvoTyre", 256)
-EvoDamage = _blob("EvoDamage", 128)
+class EvoTyre(Structure):
+    """SMEvoTyreState (256 B) – Aufbau wie in live-telemetry-evo. Druck in psi, Temperaturen °C,
+    normalized_* = 1.0 im Idealbereich."""
+    _layout_ = "ms"
+    _pack_ = 4
+    _fields_ = [
+        ("slip", c_float), ("lock", c_bool), ("tyre_pressure", c_float),
+        ("tyre_temperature_c", c_float), ("brake_temperature_c", c_float), ("brake_pressure", c_float),
+        ("tyre_temperature_left", c_float), ("tyre_temperature_center", c_float),
+        ("tyre_temperature_right", c_float),
+        ("tyre_compound_front", c_char * 33), ("tyre_compound_rear", c_char * 33),
+        ("tyre_normalized_pressure", c_float), ("tyre_normalized_temperature_left", c_float),
+        ("tyre_normalized_temperature_center", c_float), ("tyre_normalized_temperature_right", c_float),
+        ("brake_normalized_temperature", c_float), ("tyre_normalized_temperature_core", c_float),
+        ("_reserved", c_uint8 * 128),
+    ]
+
+
+class EvoDamage(Structure):
+    """SMEvoDamageState (128 B): 0 = heil, 1 = zerstört (laut live-telemetry-evo, ungeprüft)."""
+    _layout_ = "ms"
+    _pack_ = 4
+    _fields_ = [(f"damage_{k}", c_float) for k in ("front", "rear", "left", "right", "center")] + \
+        [(f"damage_suspension_{k}", c_float) for k in ("lf", "rf", "lr", "rr")] + [("_reserved", c_uint8 * 92)]
+
+
+class EvoElectronicsS(Structure):
+    """SMEvoElectronics (128 B) – Stufen der Fahrhilfen (laut live-telemetry-evo)."""
+    _layout_ = "ms"
+    _pack_ = 4
+    _fields_ = [
+        ("tc_level", c_int8), ("tc_cut_level", c_int8), ("abs_level", c_int8), ("esc_level", c_int8),
+        ("ebb_level", c_int8), ("brake_bias", c_float), ("engine_map_level", c_int8), ("turbo_level", c_float),
+        ("ers_deployment_map", c_int8), ("ers_recharge_map", c_float),
+        ("is_ers_heat_charging_on", c_bool), ("is_ers_overtake_mode_on", c_bool), ("is_drs_open", c_bool),
+        ("diff_power_level", c_int8), ("diff_coast_level", c_int8),
+        ("front_bump_damper_level", c_int8), ("front_rebound_damper_level", c_int8),
+        ("rear_bump_damper_level", c_int8), ("rear_rebound_damper_level", c_int8),
+        ("is_ignition_on", c_bool), ("is_pitlimiter_on", c_bool), ("active_performance_mode", c_int8),
+        ("_reserved", c_uint8 * 88),
+    ]
 EvoPit = _blob("EvoPit", 64)
 EvoInstrumentation = _blob("EvoInstrumentation", 128)
-EvoElectronics = _blob("EvoElectronics", 128)
+EvoElectronics = EvoElectronicsS
 EvoSession = _blob("EvoSession", 256)
 EvoTiming = _blob("EvoTiming", 256)
 EvoAssists = _blob("EvoAssists", 64)
@@ -417,6 +456,7 @@ class Snapshot:
     gear: int | None = None        # -1 = R, 0 = N, 1.. = Gang
     rpm: int | None = None
     rpm_pct: float | None = None   # 0..1 bis Begrenzer (nur AC EVO)
+    tele: dict | None = None       # erweiterte Telemetrie nur für den Live-Tab
 
 
 TRACE_STEP = 0.005   # Verlauf alle 0,5 % der Runde (200 Punkte)
@@ -721,6 +761,55 @@ class NamedMapping:
 # Spiele
 # ---------------------------------------------------------------------------
 
+def _r(v, nd=1):
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if v != v or abs(v) > 1e7 else round(v, nd)
+
+
+def kunos_physics(mapping) -> dict:
+    """SPageFilePhysics (AC1, ACC und AC EVO teilen den Anfang bis Byte 600).
+    Räder immer in der Reihenfolge VL, VR, HL, HR."""
+    import struct
+    try:
+        if not mapping.open():
+            return {}
+        size = min(mapping.size, 600)
+        raw = mapping.read_bytes(0, size)
+    except (OSError, ValueError):
+        return {}
+    f = lambda off, n=1: list(struct.unpack_from(f"<{n}f", raw, off)) if off + 4 * n <= size else None
+    i = lambda off: struct.unpack_from("<i", raw, off)[0] if off + 4 <= size else None
+    acc = f(44, 3)
+    out = {
+        "fuel": _r((f(12) or [None])[0]),
+        "steer": _r((f(24) or [None])[0], 3),
+        "g": [_r(acc[0], 2), _r(acc[2], 2)] if acc else None,          # quer, längs (G)
+        "tp": [_r(v, 1) for v in f(88, 4)] if f(88, 4) else None,       # Reifendruck psi
+        "tc": [_r(v, 0) for v in f(152, 4)] if f(152, 4) else None,     # Kerntemperatur °C
+        "slip": [_r(v, 2) for v in f(56, 4)] if f(56, 4) else None,
+        "tc_act": _r((f(204) or [0])[0], 2),
+        "abs_act": _r((f(252) or [0])[0], 2),
+        "bt": [_r(v, 0) for v in f(348, 4)] if f(348, 4) else None,     # Bremstemperatur °C
+        "ti": [_r(v, 0) for v in f(368, 4)] if f(368, 4) else None,
+        "tm": [_r(v, 0) for v in f(384, 4)] if f(384, 4) else None,
+        "to": [_r(v, 0) for v in f(400, 4)] if f(400, 4) else None,
+        "bb": _r((f(564) or [None])[0], 3),
+        "max_rpm": i(588),
+    }
+    # Unplausible/leere Werte weglassen (z. B. Felder, die ein Spiel nicht füllt)
+    for k in ("tp", "tc", "bt", "ti", "tm", "to"):
+        if out[k] and not any(v for v in out[k] if v is not None):
+            out[k] = None
+    if out["bb"] is not None and not (0.2 < out["bb"] < 0.9):
+        out["bb"] = None
+    if out["max_rpm"] is not None and not (1000 < out["max_rpm"] < 25000):
+        out["max_rpm"] = None
+    return out
+
+
 def clamp01(v) -> float | None:
     try:
         v = float(v)
@@ -798,7 +887,39 @@ class AcEvoSource(GameSource):
             speed_kmh=float(g.display_speed_kmh), throttle=g.gas_percent, brake=g.brake_percent,
             **coords(g.car_coordinates, self.player_index(g)),
             gear=self.gear(), rpm=int(g.rpm), rpm_pct=clamp01(g.rpm_percent),
+            tele=self.tele(g),
         )
+
+    def tele(self, g) -> dict:
+        t = kunos_physics(self.ph)
+        tyres = (g.tyre_lf, g.tyre_rf, g.tyre_lr, g.tyre_rr)
+        el, dm = g.electronics, g.car_damage
+        # Reifen aus dem Grafik-Block: links/mitte/rechts; bei linken Rädern ist links = außen
+        t.update(
+            tp=[_r(ty.tyre_pressure) for ty in tyres],
+            tc=[_r(ty.tyre_temperature_c, 0) for ty in tyres],
+            bt=[_r(ty.brake_temperature_c, 0) for ty in tyres],
+            ti=[_r(ty.tyre_temperature_right if k in (0, 2) else ty.tyre_temperature_left, 0) for k, ty in enumerate(tyres)],
+            tm=[_r(ty.tyre_temperature_center, 0) for ty in tyres],
+            to=[_r(ty.tyre_temperature_left if k in (0, 2) else ty.tyre_temperature_right, 0) for k, ty in enumerate(tyres)],
+            tn=[_r(ty.tyre_normalized_temperature_core, 2) for ty in tyres],
+            pn=[_r(ty.tyre_normalized_pressure, 2) for ty in tyres],
+            bn=[_r(ty.brake_normalized_temperature, 2) for ty in tyres],
+            lock=[bool(ty.lock) for ty in tyres],
+            compound=cstr(g.tyre_lf.tyre_compound_front) or None,
+            g=[_r(g.g_forces_x, 2), _r(g.g_forces_z, 2)] if (g.g_forces_x or g.g_forces_z) else t.get("g"),
+            steer=_r(g.steering_percent, 3), steer_deg=int(g.steer_degrees),
+            tc_on=bool(g.tc_active), abs_on=bool(g.abs_active),
+            tc_lvl=int(el.tc_level), tc_cut=int(el.tc_cut_level), abs_lvl=int(el.abs_level),
+            map=int(el.engine_map_level), pit_lim=bool(el.is_pitlimiter_on),
+            water=_r(g.water_temperature_c, 0), oil=_r(g.oil_temperature_c, 0), oil_p=_r(g.oil_pressure_bar, 2),
+            boost=_r(g.turbo_boost, 2), bhp=int(g.current_bhp), torque=_r(g.current_torque, 0),
+            fuel=_r(g.fuel_liter_current_quantity), fuel_lap=_r(g.fuel_liter_per_lap, 2),
+            fuel_laps=_r(g.laps_possible_with_fuel), game_delta=int(g.delta_time_ms),
+            predicted=int(g.predicted_lap_time_ms),
+            dmg=[_r(getattr(dm, f"damage_{k}"), 2) for k in ("front", "rear", "left", "right", "center")],
+        )
+        return t
 
     def gear(self) -> int | None:
         """Gang aus dem Physik-Block (@16, int32: 0 = R, 1 = N, 2 = 1. Gang – wie AC/ACC,
@@ -892,7 +1013,19 @@ class AcFamilySource(GameSource):
             driver=driver, online=bool(st.isOnline) if game == "acc" else None,
             session_id=session_id,
             speed_kmh=kmh, throttle=gas, brake=brk, **pos, gear=gear, rpm=rpm,
+            tele=self.tele(g, game),
         )
+
+    def tele(self, g, game: str) -> dict:
+        t = kunos_physics(self.ph)
+        if game in ("acc", "acrally"):
+            t.update(tc_lvl=int(g.TC), tc_cut=int(g.TCCut), abs_lvl=int(g.ABS), map=int(g.EngineMap),
+                     fuel_lap=_r(g.fuelXLap, 2))
+            if t.get("fuel") and t.get("fuel_lap"):
+                t["fuel_laps"] = _r(t["fuel"] / t["fuel_lap"])
+        t["tc_on"] = bool(t.get("tc_act"))
+        t["abs_on"] = bool(t.get("abs_act"))
+        return t
 
     def info(self) -> dict:
         self.refresh_static()
@@ -983,7 +1116,9 @@ class IRacingSource(GameSource):
     VARS = ("SessionNum", "IsOnTrack", "IsReplayPlaying", "LapCompleted", "LapLastLapTime",
             "LapBestLapTime", "LapCurrentLapTime", "LapDistPct", "OnPitRoad",
             "PlayerTrackSurface", "PlayerCarMyIncidentCount", "Speed", "Throttle", "Brake",
-            "Gear", "RPM")
+            "Gear", "RPM", "LatAccel", "LongAccel", "SteeringWheelAngle", "SteeringWheelAngleMax",
+            "FuelLevel", "FuelUsePerHour", "WaterTemp", "OilTemp", "OilPress", "dcBrakeBias",
+            "dcTractionControl", "dcABS", "BrakeABSactive", "LFbrakeLinePress")
 
     def __init__(self):
         self.m = NamedMapping("Local\\IRSDKMemMapFileName")
@@ -1062,7 +1197,28 @@ class IRacingSource(GameSource):
             incidents=v("PlayerCarMyIncidentCount"),
             speed_kmh=v("Speed", 0.0) * 3.6, throttle=v("Throttle", None), brake=v("Brake", None),
             gear=v("Gear", None), rpm=int(v("RPM", 0.0)),
+            tele=self.tele(v),
         )
+
+    def tele(self, v) -> dict:
+        g0 = 9.80665
+        smax = v("SteeringWheelAngleMax", 0.0) or 0.0
+        sa = v("SteeringWheelAngle", None)
+        t = {
+            "g": [_r(-(v("LatAccel", 0.0)) / g0, 2), _r(v("LongAccel", 0.0) / g0, 2)],
+            "steer": _r(-sa / (smax / 2), 3) if sa is not None and smax else None,
+            "steer_deg": int(round(-sa * 57.2958)) if sa is not None else None,
+            "fuel": _r(v("FuelLevel", None)), "water": _r(v("WaterTemp", None), 0),
+            "oil": _r(v("OilTemp", None), 0), "oil_p": _r(v("OilPress", None), 2),
+            "abs_on": bool(v("BrakeABSactive", False)),
+        }
+        bb = v("dcBrakeBias", None)
+        if bb:
+            t["bb"] = _r(bb / 100 if bb > 1 else bb, 3)
+        for k, name in (("tc_lvl", "dcTractionControl"), ("abs_lvl", "dcABS")):
+            if name in self.vars:
+                t[k] = _r(v(name), 0)
+        return t
 
     def info(self) -> dict:
         return {"vars": len(self.vars)}
@@ -1238,7 +1394,7 @@ def live_payload(snap: Snapshot | None, det: "LapDetector", status: str) -> dict
     d = {k: getattr(snap, k) for k in (
         "game", "status", "lap_count", "current_ms", "last_ms", "best_ms", "valid_now", "npos",
         "in_pit_lane", "track", "layout", "car", "session_type", "driver", "online", "speed_kmh",
-        "throttle", "brake", "pos_x", "pos_z", "gear", "rpm", "rpm_pct", "incidents")}
+        "throttle", "brake", "pos_x", "pos_z", "gear", "rpm", "rpm_pct", "incidents", "tele")}
     d.update(state=status, version=VERSION, session_uid=det.session_uid,
              lap_invalid=det.lap_invalid, lap_outlap=det.lap_started_in_pit,
              paused=snap.status in (STATUS_PAUSE, STATUS_REPLAY))

@@ -201,3 +201,23 @@ def test_coords_player_and_missing():
     arr[3:6] = [12.5, 3.0, -7.25]
     assert sc.coords(arr, 1) == {"pos_x": 12.5, "pos_z": -7.25}
     assert sc.coords(arr, 0) == {"pos_x": None, "pos_z": None}
+
+
+def test_evo_substructs_and_physics():
+    import ctypes
+    assert ctypes.sizeof(sc.EvoTyre) == 256 and ctypes.sizeof(sc.EvoDamage) == 128
+    assert ctypes.sizeof(sc.EvoElectronicsS) == 128 and sc.EvoElectronicsS.brake_bias.offset == 8
+    assert sc.EvoGraphics.npos.offset == 1244 and sc.EvoGraphics.total_lap_count.offset == 2384
+    import struct
+
+    class M:
+        size = 800
+        def open(self): return True
+        def read_bytes(self, o, n):
+            b = bytearray(800)
+            struct.pack_into("<3f", b, 44, 0.5, 1.0, -1.2)
+            struct.pack_into("<4f", b, 152, 80, 81, 79, 78)
+            struct.pack_into("<f", b, 564, 0.56)
+            return bytes(b[o:o + n])
+    t = sc.kunos_physics(M())
+    assert t["g"] == [0.5, -1.2] and t["tc"] == [80, 81, 79, 78] and t["bb"] == 0.56 and t["tp"] is None

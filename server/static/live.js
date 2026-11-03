@@ -267,6 +267,7 @@ function render() {
   renderInputs(d);
   renderSectors(d);
   renderPosition(d);
+  renderTele(d);
 }
 
 function renderTiles(d) {
@@ -375,3 +376,181 @@ window.addEventListener("resize", () => {
 setInterval(() => { if (!document.hidden && location.hash !== "#live") pollLiveDot(); }, 10000);
 pollLiveDot();
 showTab();
+
+// ---------------------------------------------------------------------------
+// Erweiterte Telemetrie (Collector ab 0.5): Verlauf, Reifen, G-Kräfte, Fahrhilfen, Motor
+// ---------------------------------------------------------------------------
+const TRACE_WINDOW_MS = 20000;
+live.hist = [];          // { at, v, thr, brk }
+live.gTrail = [];        // { at, x, y }
+
+const COLD = [0x39, 0x87, 0xe5], HOT = [0xe6, 0x67, 0x67], OKC = [0x48, 0x48, 0x44];
+/** Temperatur-/Druckfarbe: n = 1 ideal, < 1 kalt (blau), > 1 heiß (rot). */
+function heatColor(n) {
+  if (n == null || !isFinite(n)) return null;
+  const d = n - 1;
+  if (Math.abs(d) < 0.06) return mixRgb(OKC, OKC, 0);
+  return mixRgb(OKC, d < 0 ? COLD : HOT, Math.min(1, (Math.abs(d) - 0.06) / 0.25));
+}
+const num = (v, nd = 0) => (v == null ? "–" : Number(v).toLocaleString("de-DE", { minimumFractionDigits: nd, maximumFractionDigits: nd }));
+
+function pushHist(d) {
+  const now = performance.now();
+  if (d.state === "live" && !d.paused) {
+    live.hist.push({ at: now, v: d.speed_kmh, thr: d.throttle, brk: d.brake });
+    const g = d.tele && d.tele.g;
+    if (g && g[0] != null) live.gTrail.push({ at: now, x: g[0], y: g[1] });
+  }
+  while (live.hist.length && now - live.hist[0].at > TRACE_WINDOW_MS) live.hist.shift();
+  while (live.gTrail.length && now - live.gTrail[0].at > 3000) live.gTrail.shift();
+}
+
+function renderTele(d) {
+  pushHist(d);
+  const t = d.tele || {};
+  renderTrace();
+  renderTyres(t);
+  renderG(t);
+  renderAssist(t);
+  renderEngine(t, d);
+}
+
+function renderTrace() {
+  const H = live.hist, now = performance.now();
+  const leg = $("#lv-trace-legend");
+  if (!leg.childElementCount) {
+    const key = (c, l) => { const v = s("svg", { width: 18, height: 10 }); v.append(s("line", { x1: 1, y1: 5, x2: 17, y2: 5, stroke: c, "stroke-width": 2, "stroke-linecap": "round" })); return h("span", { class: "key" }, v, l); };
+    leg.replaceChildren(key("var(--text-primary)", "Tempo"), key("var(--series-1)", "Gas"), key("var(--series-2)", "Bremse"));
+  }
+  const draw = (box, series, lo, hi, ticks, fmtY) => {
+    const W = box.clientWidth || 600, Hh = box.clientHeight || 110, m = { l: 40, r: 6, t: 6, b: 4 };
+    const x = (at) => m.l + (1 - (now - at) / TRACE_WINDOW_MS) * (W - m.l - m.r);
+    const y = (v) => m.t + (1 - (v - lo) / (hi - lo)) * (Hh - m.t - m.b);
+    const svg = s("svg", { viewBox: `0 0 ${W} ${Hh}`, "aria-hidden": "true" });
+    const grid = s("g", { class: "grid" }), axis = s("g", { class: "axis" });
+    for (const v of ticks) {
+      grid.append(s("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) }));
+      const tx = s("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" }); tx.textContent = fmtY(v); axis.append(tx);
+    }
+    svg.append(grid, axis);
+    for (const { key, color, scale = 1 } of series) {
+      let dd = "", pen = false;
+      for (const p of H) {
+        const v = p[key];
+        if (v == null) { pen = false; continue; }
+        dd += `${pen ? "L" : "M"}${x(p.at).toFixed(1)},${y(v * scale).toFixed(1)}`; pen = true;
+      }
+      if (dd) svg.append(s("path", { d: dd, fill: "none", stroke: color, "stroke-width": 2, "stroke-linejoin": "round" }));
+    }
+    box.replaceChildren(svg);
+  };
+  const vs = H.map((p) => p.v).filter((v) => v != null);
+  const vmax = Math.max(100, Math.ceil((Math.max(0, ...vs) + 10) / 50) * 50);
+  const vt = []; for (let v = 0; v <= vmax; v += vmax > 200 ? 100 : 50) vt.push(v);
+  draw($("#lv-trace-speed"), [{ key: "v", color: "var(--text-primary)" }], 0, vmax, vt, (v) => v);
+  draw($("#lv-trace-pedals"), [{ key: "brk", color: "var(--series-2)", scale: 100 }, { key: "thr", color: "var(--series-1)", scale: 100 }], 0, 100, [0, 50, 100], (v) => `${v} %`);
+}
+
+function renderTyres(t) {
+  const card = $("#lv-tyres-card");
+  const has = t.tc || t.tp || t.bt;
+  card.hidden = !has;
+  if (!has) return;
+  $("#lv-compound").textContent = t.compound ? `· ${t.compound}` : "";
+  const names = ["VL", "VR", "HL", "HR"];
+  // ohne normierte Werte vom Spiel: grobe GT3-Richtwerte (Reifenkern ~85 °C, Bremse ~450 °C)
+  const tn = (k) => (t.tn && t.tn[k] ? t.tn[k] : t.tc && t.tc[k] ? t.tc[k] / 85 : null);
+  const bn = (k) => (t.bn && t.bn[k] ? t.bn[k] : t.bt && t.bt[k] ? t.bt[k] / 450 : null);
+  const faceN = (v, k) => (v == null ? null : t.tn && t.tc && t.tc[k] ? (v / t.tc[k]) * t.tn[k] : v / 85);
+  const cells = names.map((nm, k) => {
+    const c = heatColor(tn(k));
+    const faces = ["ti", "tm", "to"].map((f) => (t[f] ? t[f][k] : null));
+    // Außenseite zeigt nach außen: links O|M|I, rechts I|M|O
+    const order = k % 2 === 0 ? [2, 1, 0] : [0, 1, 2];
+    const stripes = faces.some((v) => v) ? h("div", { class: "faces" }, order.map((j) => h("span", { style: `background:${heatColor(faceN(faces[j], k)) || "var(--surface-2)"}`, title: `${["innen", "mitte", "außen"][j]} ${num(faces[j])} °C` }))) : null;
+    const bcol = heatColor(bn(k));
+    return h("div", { class: `tyre${t.lock && t.lock[k] ? " locked" : ""}`, style: c ? `--tc:${c}` : "" },
+      h("div", { class: "tyre-head" }, h("span", { class: "nm" }, nm), t.lock && t.lock[k] ? h("span", { class: "lockb" }, "blockiert") : null),
+      h("div", { class: "temp" }, t.tc && t.tc[k] != null ? `${num(t.tc[k])}°` : "–"),
+      stripes,
+      h("div", { class: "row" }, h("span", {}, "Druck"), h("b", {}, t.tp && t.tp[k] != null ? `${num(t.tp[k], 1)} psi` : "–")),
+      h("div", { class: "row" }, h("span", {}, h("i", { class: "bdot", style: bcol ? `background:${bcol}` : "" }), "Bremse"), h("b", {}, t.bt && t.bt[k] != null ? `${num(t.bt[k])} °C` : "–")));
+  });
+  $("#lv-tyres").replaceChildren(...cells);
+  const leg = $("#lv-tyre-legend");
+  if (!leg.childElementCount) leg.replaceChildren(
+    h("span", { class: "key" }, h("span", { class: "mark-gain" }), "zu kalt"),
+    h("span", { class: "key" }, h("span", { class: "mark-neutral" }), "im Fenster"),
+    h("span", { class: "key" }, h("span", { class: "mark-loss" }), "zu heiß"),
+    h("span", { class: "key muted" }, t.tn ? "laut Spiel" : "Richtwert GT3"));
+}
+
+function renderG(t) {
+  const card = $("#lv-g-card"), g = t.g;
+  card.hidden = !g || g[0] == null;
+  if (card.hidden) return;
+  const box = $("#lv-g"), S = 170, c = S / 2, R = S / 2 - 8, max = 2.5;
+  const P = (gx, gy) => [c + Math.max(-1, Math.min(1, gx / max)) * R, c - Math.max(-1, Math.min(1, gy / max)) * R];
+  const svg = s("svg", { viewBox: `0 0 ${S} ${S}`, "aria-hidden": "true" });
+  for (const r of [1, 2]) svg.append(s("circle", { class: "ring", cx: c, cy: c, r: (r / max) * R }));
+  svg.append(s("circle", { class: "ring outer", cx: c, cy: c, r: R }),
+    s("line", { class: "axis-l", x1: c - R, x2: c + R, y1: c, y2: c }), s("line", { class: "axis-l", x1: c, x2: c, y1: c - R, y2: c + R }));
+  for (const [r, lbl] of [[1, "1 G"], [2, "2 G"]]) { const tx = s("text", { x: c + 3, y: c - (r / max) * R + 10 }); tx.textContent = lbl; svg.append(tx); }
+  const now = performance.now();
+  live.gTrail.forEach((p, i) => {
+    if (!i) return;
+    const a = P(live.gTrail[i - 1].x, live.gTrail[i - 1].y), b = P(p.x, p.y);
+    svg.append(s("line", { class: "gtrail", x1: a[0], y1: a[1], x2: b[0], y2: b[1], opacity: (1 - (now - p.at) / 3000).toFixed(2) }));
+  });
+  const [px, py] = P(g[0], g[1]);
+  svg.append(s("circle", { class: "gdot", cx: px, cy: py, r: 7 }));
+  box.replaceChildren(svg);
+  const lat = g[0], lon = g[1];
+  $("#lv-g-vals").replaceChildren(
+    h("div", {}, h("span", {}, "quer"), h("b", {}, `${num(Math.abs(lat), 2)} G`)),
+    h("div", {}, h("span", {}, lon < 0 ? "bremsen" : "beschleunigen"), h("b", {}, `${num(Math.abs(lon), 2)} G`)));
+}
+
+function kv(label, value, extra) {
+  return h("div", { class: `kv${extra ? " " + extra : ""}` }, h("span", {}, label), h("b", {}, value));
+}
+
+function renderAssist(t) {
+  const card = $("#lv-assist-card");
+  const has = t.tc_lvl != null || t.abs_lvl != null || t.bb != null || t.steer != null;
+  card.hidden = !has;
+  if (!has) return;
+  const items = [];
+  if (t.tc_lvl != null) items.push(kv("TC", `${t.tc_lvl}${t.tc_cut ? ` · Cut ${t.tc_cut}` : ""}`, t.tc_on ? "active" : ""));
+  if (t.abs_lvl != null) items.push(kv("ABS", String(t.abs_lvl), t.abs_on ? "active" : ""));
+  else if (t.abs_on) items.push(kv("ABS", "greift", "active"));
+  if (t.bb != null) items.push(kv("Bremsbalance", `${num(t.bb * 100, 1)} % vorn`));
+  if (t.map != null) items.push(kv("Motor-Map", String(t.map)));
+  if (t.pit_lim) items.push(kv("Pit-Limiter", "an", "active"));
+  $("#lv-assist").replaceChildren(...items);
+  const st = t.steer;
+  const bar = $("#lv-steer");
+  if (st == null) { bar.style.width = "0"; $("#lv-steer-txt").textContent = ""; return; }
+  const f = Math.min(1, Math.abs(st)) * 50;
+  Object.assign(bar.style, { width: `${f}%`, left: st >= 0 ? "50%" : `${50 - f}%` });
+  $("#lv-steer-txt").textContent = t.steer_deg != null ? `Lenkung ${t.steer_deg > 0 ? "rechts" : t.steer_deg < 0 ? "links" : "gerade"} ${Math.abs(t.steer_deg)}°` : `Lenkung ${Math.round(st * 100)} %`;
+}
+
+function renderEngine(t, d) {
+  const card = $("#lv-engine-card");
+  const items = [];
+  if (t.water != null && t.water > 0) items.push(kv("Wasser", `${num(t.water)} °C`));
+  if (t.oil != null && t.oil > 0) items.push(kv("Öl", `${num(t.oil)} °C`));
+  if (t.oil_p != null && t.oil_p > 0) items.push(kv("Öldruck", `${num(t.oil_p, 1)} bar`));
+  if (t.boost != null && t.boost > 0.01) items.push(kv("Ladedruck", `${num(t.boost, 2)} bar`));
+  if (t.bhp > 0) items.push(kv("Leistung", `${num(t.bhp)} PS`));
+  if (t.torque > 0) items.push(kv("Drehmoment", `${num(t.torque)} Nm`));
+  if (t.max_rpm && d.rpm) items.push(kv("Drehzahl", `${num(d.rpm)} / ${num(t.max_rpm)}`));
+  if (t.fuel != null && t.fuel > 0) items.push(kv("Sprit", `${num(t.fuel, 1)} l`));
+  if (t.fuel_lap > 0) items.push(kv("Verbrauch", `${num(t.fuel_lap, 2)} l/Runde`));
+  if (t.fuel_laps > 0) items.push(kv("reicht für", `${num(t.fuel_laps, 1)} Runden`, t.fuel_laps < 2 ? "warn" : ""));
+  const dmg = (t.dmg || []).filter((v) => v > 0.01);
+  if (dmg.length) items.push(kv("Schaden", `${num(Math.max(...dmg) * 100)} %`, "warn"));
+  card.hidden = !items.length;
+  $("#lv-engine").replaceChildren(...items);
+}

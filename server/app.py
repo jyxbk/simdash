@@ -151,7 +151,7 @@ app = FastAPI(title="SimDash", lifespan=lifespan)
 # Nur im Speicher – nach einem Neustart ist einfach nichts live, bis neue Daten kommen.
 # ---------------------------------------------------------------------------
 LIVE: dict = {"data": None, "at": 0.0, "seq": 0}
-LIVE_MAX_BYTES = 4096
+LIVE_MAX_BYTES = 16384
 
 
 def live_view() -> dict:
