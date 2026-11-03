@@ -919,6 +919,9 @@ class AcEvoSource(GameSource):
             predicted=int(g.predicted_lap_time_ms),
             dmg=[_r(getattr(dm, f"damage_{k}"), 2) for k in ("front", "rear", "left", "right", "center")],
         )
+        for k in ("tp", "tc", "bt", "ti", "tm", "to", "tn", "pn", "bn"):
+            if t.get(k) and not any(v for v in t[k] if v):
+                t[k] = None                      # Menü/Box: Spiel liefert nur Nullen
         return t
 
     def gear(self) -> int | None:
