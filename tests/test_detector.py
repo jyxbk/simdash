@@ -185,3 +185,19 @@ def test_build_trace_gaps_and_wrap():
 
 def test_build_trace_too_short():
     assert sc.build_trace([(i / 100, i * 100, None, None, None) for i in range(10)]) is None
+
+
+def test_build_trace_positions():
+    samples = [(i / 100, i * 800, 150.0, 1.0, 0.0, 100.0 + i, -50.0 - 2 * i) for i in range(101)]
+    tr = sc.build_trace(samples)
+    assert tr["x"][100] == 150.0 and tr["z"][100] == -150.0
+    # alte 5er-Proben: keine Positionen
+    tr = sc.build_trace([s[:5] for s in samples])
+    assert tr["x"] is None and tr["z"] is None
+
+
+def test_coords_player_and_missing():
+    arr = [0.0] * 180
+    arr[3:6] = [12.5, 3.0, -7.25]
+    assert sc.coords(arr, 1) == {"pos_x": 12.5, "pos_z": -7.25}
+    assert sc.coords(arr, 0) == {"pos_x": None, "pos_z": None}

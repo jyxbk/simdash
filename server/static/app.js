@@ -572,6 +572,30 @@ function renderAnalysis() {
 
   const kids = [tiles];
 
+  // 0) Streckenkarte (nur Runden mit Positionsdaten, Collector ab 0.3)
+  const geo = [sel, ref, ...traced].find((l) => l.trace.x && l.trace.z && l.trace.x.filter((v) => v != null).length > 100);
+  let mapBox = null, mapMode = analysis.mapMode || "delta";
+  if (sel.id === ref.id) mapMode = "speed";
+  if (mapMode === "speed" && !sel.trace.v) mapMode = "delta";
+  if (geo) {
+    mapBox = h("div", { class: "trackmap", role: "img", "aria-label": mapMode === "delta" ? "Streckenkarte: wo Zeit verloren oder gewonnen wurde" : "Streckenkarte: Tempo entlang der Runde" });
+    const modeBtn = (mode, label, disabled) => {
+      const b = h("button", { class: "chip", type: "button", "aria-pressed": String(mapMode === mode) }, label);
+      if (disabled) b.disabled = true;
+      b.addEventListener("click", () => { analysis.mapMode = mode; renderAnalysis(); });
+      return b;
+    };
+    kids.push(h("div", { class: "map-head" },
+      h("div", { class: "subchart-title" }, "Streckenkarte"),
+      h("div", { class: "chips map-modes" },
+        modeBtn("delta", "Zeitverlust", sel.id === ref.id),
+        modeBtn("speed", "Tempo", !sel.trace.v))),
+      h("div", { class: "legend", id: "map-legend" }), mapBox);
+  } else {
+    kids.push(h("div", { class: "subchart-title" }, "Streckenkarte"),
+      h("p", { class: "analysis-empty" }, "Die Karte gibt es für Runden ab Collector 0.3 (AC EVO, ACC, Assetto Corsa). Collector aktualisieren und neu starten, dann erscheint sie nach der nächsten Runde."));
+  }
+
   // 1) Delta über die Runde
   const n = sel.trace.t.length;
   const delta = sel.trace.t.map((v, i) => (v != null && ref.trace.t[i] != null ? v - ref.trace.t[i] : null));
@@ -610,12 +634,124 @@ function renderAnalysis() {
     return rows;
   };
 
+  if (mapBox) analysis.charts.push(drawTrackMap(mapBox, { geo, sel, ref, mode: mapMode, tip: tipFor }));
   analysis.charts.push(drawXY(deltaBox, { xs, series: [{ values: delta.map((v) => (v == null ? null : v / 1000)), color: "var(--text-primary)" }], signArea: true, zero: true, yFmt: (v) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(Math.abs(v) < 1 ? 2 : 1)}`, tip: tipFor }));
   drawSectors(secBox, sd, sT, rT);
   if (speedBox) {
     const sv = [...sel.trace.v, null], rv = [...ref.trace.v, null];
     analysis.charts.push(drawXY(speedBox, { xs, series: [{ values: rv, color: "var(--series-2)" }, { values: sv, color: "var(--series-1)" }], yFmt: (v) => Math.round(v), tip: tipFor }));
   }
+}
+
+/* --- Streckenkarte ----------------------------------------------------------- */
+const MAP_NEUTRAL = [0x48, 0x48, 0x44];                 // grauer Mittelpunkt (gleich schnell)
+const MAP_GAIN = [0x39, 0x87, 0xe5], MAP_LOSS = [0xe6, 0x67, 0x67];
+const SPEED_RAMP = ["#184f95", "#1c5cab", "#256abf", "#2a78d6", "#3987e5", "#5598e7", "#6da7ec", "#86b6ef", "#9ec5f4", "#b7d3f6", "#cde2fb"]; // langsam → schnell
+const hexRgb = (hx) => [1, 3, 5].map((k) => parseInt(hx.slice(k, k + 2), 16));
+const mixRgb = (a, b, f) => `rgb(${a.map((v, k) => Math.round(v + (b[k] - v) * f)).join(",")})`;
+function rampColor(f) {
+  const p = Math.max(0, Math.min(1, f)) * (SPEED_RAMP.length - 1), k = Math.min(SPEED_RAMP.length - 2, Math.floor(p));
+  return mixRgb(hexRgb(SPEED_RAMP[k]), hexRgb(SPEED_RAMP[k + 1]), p - k);
+}
+
+/** Draufsicht der Strecke aus x/z; Segmente nach Zeitverlust (rot/blau) oder Tempo (blau hell = schnell). */
+function drawTrackMap(box, { geo, sel, ref, mode, tip }) {
+  const X = geo.trace.x, Z = geo.trace.z, n = X.length;
+  const idx = [...Array(n).keys()].filter((i) => X[i] != null && Z[i] != null);
+  const W = box.clientWidth || 600, H = box.clientHeight || 320, pad = 26;
+  const xs = idx.map((i) => X[i]), zs = idx.map((i) => Z[i]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), z0 = Math.min(...zs), z1 = Math.max(...zs);
+  const k = Math.min((W - 2 * pad) / Math.max(1, x1 - x0), (H - 2 * pad) / Math.max(1, z1 - z0));
+  const ox = (W - (x1 - x0) * k) / 2, oz = (H - (z1 - z0) * k) / 2;
+  const P = (i) => (X[i] == null || Z[i] == null ? null : [ox + (X[i] - x0) * k, oz + (Z[i] - z0) * k]);
+
+  // Farbe je Segment i → i+1
+  const color = new Array(n).fill(null);
+  const legend = $("#map-legend");
+  if (mode === "delta") {
+    const d = sel.trace.t.map((v, i) => (v != null && ref.trace.t[i] != null ? v - ref.trace.t[i] : null));
+    // Verlust je Strecke = Steigung des Abstands über ±4 Punkte (glättet das Messrauschen)
+    const W2 = 4;
+    const rate = d.map((_, i) => {
+      const a = d[Math.max(0, i - W2)], b = d[Math.min(n - 1, i + 1 + W2)];
+      const span = Math.min(n - 1, i + 1 + W2) - Math.max(0, i - W2);
+      return d[i] == null || d[i + 1] == null || a == null || b == null ? null : (b - a) / span;
+    });
+    const mags = rate.filter((v) => v != null).map(Math.abs).sort((a, b) => a - b);
+    const scale = Math.max(4, mags[Math.floor(mags.length * 0.9)] || 0);
+    rate.forEach((r, i) => { if (r != null) color[i] = mixRgb(MAP_NEUTRAL, r > 0 ? MAP_LOSS : MAP_GAIN, Math.min(1, Math.abs(r) / scale)); });
+    legend.replaceChildren(
+      h("span", { class: "key" }, h("span", { class: "mark-loss" }), "verliert Zeit"),
+      h("span", { class: "key" }, h("span", { class: "mark-gain" }), "gewinnt Zeit"),
+      h("span", { class: "key" }, h("span", { class: "mark-neutral" }), "gleich"),
+      h("span", { class: "key muted" }, `Runde ${sel.lap_number} gegen Vergleich`));
+  } else {
+    const v = sel.trace.v, known = v.filter((a) => a != null);
+    const lo = Math.min(...known), hi = Math.max(...known);
+    v.forEach((a, i) => { if (a != null && v[i + 1] != null) color[i] = rampColor((((a + v[i + 1]) / 2) - lo) / Math.max(1, hi - lo)); });
+    legend.replaceChildren(h("span", { class: "key" }, `${Math.round(lo)} km/h`, h("span", { class: "ramp", style: `background: linear-gradient(90deg, ${SPEED_RAMP.join(",")})` }), `${Math.round(hi)} km/h`),
+      h("span", { class: "key muted" }, `Runde ${sel.lap_number}`));
+  }
+
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, "aria-hidden": "true" });
+  // Asphalt-Unterlage, damit Lücken und neutrale Stellen sichtbar bleiben
+  let under = "";
+  for (let i = 0; i < n; i++) { const p = P(i); if (!p) continue; under += `${P(i - 1) && i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`; }
+  svg.append(s("path", { class: "map-base", d: under }));
+  const segs = s("g", { class: "map-segs" });
+  for (let i = 0; i < n - 1; i++) {
+    const a = P(i), b = P(i + 1);
+    if (!a || !b || !color[i]) continue;
+    segs.append(s("line", { x1: a[0].toFixed(1), y1: a[1].toFixed(1), x2: b[0].toFixed(1), y2: b[1].toFixed(1), stroke: color[i] }));
+  }
+  svg.append(segs);
+
+  // Start/Ziel und Abschnittsnummern (wie im Balkendiagramm)
+  const per = Math.round(n / SECTORS);
+  const cx = W / 2, cy = H / 2;
+  for (let kk = 0; kk < SECTORS; kk++) {
+    const i = idx.find((j) => j >= kk * per);
+    if (i == null) continue;
+    const p = P(i), q = P(Math.min(n - 1, i + 2)) || p;
+    let nx = -(q[1] - p[1]), ny = q[0] - p[0];
+    const len = Math.hypot(nx, ny) || 1; nx /= len; ny /= len;
+    if ((p[0] - cx) * nx + (p[1] - cy) * ny < 0) { nx = -nx; ny = -ny; }   // nach außen
+    if (kk === 0 && i <= 2) {
+      svg.append(s("line", { class: "map-start", x1: p[0] - nx * 9, y1: p[1] - ny * 9, x2: p[0] + nx * 9, y2: p[1] + ny * 9 }));
+    }
+    svg.append(s("circle", { class: "map-tick", cx: p[0], cy: p[1], r: 2.5 }));
+    const t = s("text", { class: "map-label", x: p[0] + nx * 15, y: p[1] + ny * 15 + 4, "text-anchor": "middle" });
+    t.textContent = String(kk + 1); svg.append(t);
+  }
+
+  const dot = s("circle", { class: "map-dot", r: 6, visibility: "hidden" });
+  const hit = s("rect", { x: 0, y: 0, width: W, height: H, fill: "transparent" });
+  svg.append(dot, hit);
+  box.replaceChildren(svg);
+
+  const chart = {
+    showAt(i) { const p = P(Math.min(i, n - 1)); if (!p) return this.hide(); dot.setAttribute("cx", p[0]); dot.setAttribute("cy", p[1]); dot.setAttribute("visibility", "visible"); },
+    hide() { dot.setAttribute("visibility", "hidden"); },
+  };
+  const tipEl = $("#tooltip");
+  const nearest = (e) => {
+    const r = box.getBoundingClientRect(), mx = ((e.clientX - r.left) / r.width) * W, my = ((e.clientY - r.top) / r.height) * H;
+    let best = null, bd = 28 * 28;
+    for (const i of idx) { const p = P(i), dd = (p[0] - mx) ** 2 + (p[1] - my) ** 2; if (dd < bd) { bd = dd; best = i; } }
+    return best;
+  };
+  const show = (e) => {
+    const i = nearest(e);
+    if (i == null) { analysis.charts.forEach((c) => c.hide()); tipEl.hidden = true; return; }
+    analysis.charts.forEach((c) => c.showAt(i));
+    tipEl.replaceChildren(...tip(i)); tipEl.hidden = false;
+    tipEl.style.left = `${Math.min(Math.max(8, e.clientX + 14), window.innerWidth - tipEl.offsetWidth - 8)}px`;
+    tipEl.style.top = `${Math.max(8, e.clientY - tipEl.offsetHeight - 14)}px`;
+  };
+  hit.addEventListener("pointermove", show);
+  hit.addEventListener("pointerdown", show);
+  hit.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") { analysis.charts.forEach((c) => c.hide()); tipEl.hidden = true; } });
+  return chart;
 }
 
 function niceStep(range, target = 4) {

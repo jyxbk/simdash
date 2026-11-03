@@ -80,6 +80,8 @@ class Trace(BaseModel):
     v: list[float | None] | None = Field(default=None, max_length=1000)
     thr: list[int | None] | None = Field(default=None, max_length=1000)
     brk: list[int | None] | None = Field(default=None, max_length=1000)
+    x: list[float | None] | None = Field(default=None, max_length=1000)   # Weltkoordinaten (m)
+    z: list[float | None] | None = Field(default=None, max_length=1000)
 
 
 class LapIn(BaseModel):

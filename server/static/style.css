@@ -351,10 +351,26 @@ footer a { color: var(--series-1); text-decoration: none; }
 .sectors { height: 170px; }
 .sector-label { fill: var(--text-secondary); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
 
+.map-head { display: flex; justify-content: space-between; align-items: end; gap: .5rem; flex-wrap: wrap; }
+.map-modes { flex: 0 0 auto; }
+.map-modes .chip:disabled { opacity: .4; cursor: default; }
+.trackmap { position: relative; width: 100%; height: 340px; touch-action: pan-y; margin-top: .3rem; }
+.trackmap svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.trackmap .map-base { fill: none; stroke: var(--grid); stroke-width: 11; stroke-linecap: round; stroke-linejoin: round; }
+.trackmap .map-segs line { stroke-width: 5; stroke-linecap: round; }
+.trackmap .map-start { stroke: var(--text-primary); stroke-width: 2.5; stroke-linecap: round; }
+.trackmap .map-tick { fill: var(--text-muted); }
+.trackmap .map-label { fill: var(--text-muted); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.trackmap .map-dot { fill: var(--text-primary); stroke: var(--surface-1); stroke-width: 2; }
+.mark-neutral { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: .35rem; background: #484844; }
+.legend .ramp { display: inline-block; width: 70px; height: 8px; border-radius: 4px; margin: 0 .4rem; vertical-align: middle; }
+.legend .key.muted { color: var(--text-muted); }
+
 .analysis-empty { color: var(--text-secondary); padding: 1.2rem 0 .4rem; font-size: .92rem; }
 
 @media (max-width: 760px) {
   .insights { grid-template-columns: repeat(2, 1fr); }
   .pickers select { min-width: 0; max-width: 46vw; }
   .xy { height: 170px; }
+  .trackmap { height: 280px; }
 }

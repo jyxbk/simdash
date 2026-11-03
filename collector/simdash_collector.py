@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "0.2.0b1"
+VERSION = "0.3.0b1"
 POLL_HZ = 50
 
 log = logging.getLogger("simdash")
@@ -412,28 +412,32 @@ class Snapshot:
     speed_kmh: float | None = None
     throttle: float | None = None  # 0..1
     brake: float | None = None     # 0..1
+    pos_x: float | None = None     # Weltkoordinaten des eigenen Autos (m), für die Streckenkarte
+    pos_z: float | None = None
 
 
 TRACE_STEP = 0.005   # Verlauf alle 0,5 % der Runde (200 Punkte)
 
 
 def build_trace(samples: list[tuple]) -> dict | None:
-    """Rohwerte (npos, ms, kmh, gas, bremse) auf ein festes Raster entlang der Runde legen.
+    """Rohwerte (npos, ms, kmh, gas, bremse[, x, z]) auf ein festes Raster entlang der Runde legen.
 
     t[i] = Rundenzeit in ms bei Position i*TRACE_STEP. Lücken (z. B. Outlap aus der Box)
     bleiben None. Rückwärts (Dreher) und Werte vom Rundenende davor werden verworfen.
     """
     pts, last_n = [], -1.0
-    for n, t, v, thr, brk in samples:
+    for smp in samples:
+        n, t = smp[0], smp[1]
         if not (0.0 <= n <= 1.0) or (t < 5000 and n > 0.9):
             continue
         if n <= last_n:
             continue
-        pts.append((n, t, v, thr, brk))
+        pts.append(tuple(smp) + (None,) * (7 - len(smp)))
         last_n = n
     if len(pts) < 20 or pts[-1][0] - pts[0][0] < 0.5:
         return None
-    out = {"step": TRACE_STEP, "t": [], "v": [], "thr": [], "brk": []}
+    keys = ("t", "v", "thr", "brk", "x", "z")
+    out = {"step": TRACE_STEP, **{k: [] for k in keys}}
     j = 0
     for i in range(int(round(1 / TRACE_STEP))):
         g = i * TRACE_STEP
@@ -441,7 +445,7 @@ def build_trace(samples: list[tuple]) -> dict | None:
             j += 1
         a, b = pts[j], pts[j + 1]
         if g < a[0] or g > b[0]:
-            for k in ("t", "v", "thr", "brk"):
+            for k in keys:
                 out[k].append(None)
             continue
         f = (g - a[0]) / (b[0] - a[0]) if b[0] > a[0] else 0.0
@@ -455,7 +459,9 @@ def build_trace(samples: list[tuple]) -> dict | None:
         out["v"].append(lerp(2, 1.0, 1))
         out["thr"].append(lerp(3, 100))
         out["brk"].append(lerp(4, 100))
-    for k in ("v", "thr", "brk"):
+        out["x"].append(lerp(5, 1.0, 1))
+        out["z"].append(lerp(6, 1.0, 1))
+    for k in ("v", "thr", "brk", "x", "z"):
         if all(x is None for x in out[k]):
             out[k] = None
     return out
@@ -615,7 +621,8 @@ class LapDetector:
                     self.lap_invalid = True
             self.lap_max_current = max(self.lap_max_current, s.current_ms)
             if s.current_ms > 0:
-                self.samples.append((s.npos, s.current_ms, s.speed_kmh, s.throttle, s.brake))
+                self.samples.append((s.npos, s.current_ms, s.speed_kmh, s.throttle, s.brake,
+                                     s.pos_x, s.pos_z))
             # Boxenausfahrt liegt meist kurz hinter der Linie -> Boxengasse in der
             # ersten Rundenhälfte = Outlap
             if s.in_pit_lane and s.npos < 0.5:
@@ -711,6 +718,17 @@ class NamedMapping:
 # Spiele
 # ---------------------------------------------------------------------------
 
+def coords(arr, idx: int) -> dict:
+    """x/z (Draufsicht, y ist oben) aus einem flachen [x, y, z]*n-Feld; 0/0 = keine Daten."""
+    try:
+        x, z = float(arr[3 * idx]), float(arr[3 * idx + 2])
+    except (IndexError, TypeError, ValueError):
+        return {"pos_x": None, "pos_z": None}
+    if (x == 0.0 and z == 0.0) or x != x or z != z or abs(x) > 1e6 or abs(z) > 1e6:
+        return {"pos_x": None, "pos_z": None}
+    return {"pos_x": x, "pos_z": z}
+
+
 class GameSource:
     game = ""
     settle_s: float | None = None
@@ -759,7 +777,19 @@ class AcEvoSource(GameSource):
             driver=driver, online=bool(st.is_online),
             session_id=f"{st.event_id}:{st.session_id}",
             speed_kmh=float(g.display_speed_kmh), throttle=g.gas_percent, brake=g.brake_percent,
+            **coords(g.car_coordinates, self.player_index(g)),
         )
+
+    def player_index(self, g) -> int:
+        """Platz des eigenen Autos in car_coordinates: car_ids enthält je Auto (id_a, id_b)."""
+        pa, pb = g.player_car_id_a, g.player_car_id_b
+        for i in range(60):
+            if g.car_ids[2 * i] == pa and g.car_ids[2 * i + 1] == pb:
+                return i
+        for i in range(120):                     # Ersatz: nur eine ID je Auto
+            if pa and g.car_ids[i] == pa:
+                return i
+        return 0
 
     def info(self) -> dict:
         self.refresh_static()
@@ -802,11 +832,14 @@ class AcFamilySource(GameSource):
         st = self.static
         if game in ("acc", "acrally"):
             g = self.g.read(AccGraphics)
+            idx = next((i for i in range(min(max(g.activeCars, 1), 60)) if g.carID[i] == g.playerCarID), 0)
+            pos = coords(g.carCoordinates, idx)
             valid = bool(g.isValidLap) if game == "acc" else None
             pit, session_id = bool(g.isInPitLane), str(g.sessionIndex)
             sessions = ACC_SESSIONS
         else:
             g = self.g.read(Ac1Graphics)
+            pos = coords(g.carCoordinates, 0)
             valid, pit, session_id = None, bool(g.isInPitLane), ""
             sessions = AC1_SESSIONS
         driver = f"{wstr(st.playerName)} {wstr(st.playerSurname)}".strip()
@@ -822,7 +855,7 @@ class AcFamilySource(GameSource):
             session_type=sessions.get(g.session, str(g.session)),
             driver=driver, online=bool(st.isOnline) if game == "acc" else None,
             session_id=session_id,
-            speed_kmh=kmh, throttle=gas, brake=brk,
+            speed_kmh=kmh, throttle=gas, brake=brk, **pos,
         )
 
     def info(self) -> dict:
@@ -1227,6 +1260,7 @@ def main() -> None:
                 print(f"{snap.game} st={snap.status} laps={snap.lap_count} cur={fmt_ms(max(snap.current_ms, 0))} "
                       f"last={fmt_ms(max(snap.last_ms, 0))} best={fmt_ms(max(snap.best_ms, 0))} "
                       f"valid={snap.valid_now} npos={snap.npos:.3f} pit={snap.in_pit_lane} "
+                      f"pos={snap.pos_x and round(snap.pos_x, 1)}/{snap.pos_z and round(snap.pos_z, 1)} "
                       f"| {snap.track}/{snap.layout} {snap.car} {snap.session_type} online={snap.online}")
             time.sleep(1 / POLL_HZ)
         except KeyboardInterrupt:
