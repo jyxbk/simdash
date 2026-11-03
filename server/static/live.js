@@ -287,7 +287,12 @@ function renderTiles(d) {
 
 function renderInputs(d) {
   $("#lv-speed").textContent = d.speed_kmh == null ? "–" : Math.round(d.speed_kmh);
-  $("#lv-gear").textContent = d.gear == null ? "–" : d.gear < 0 ? "R" : d.gear === 0 ? "N" : String(d.gear);
+  // Beim Schalten meldet das Spiel kurz Leerlauf – in Fahrt „N“ erst nach 400 ms zeigen
+  const now = performance.now();
+  if (d.gear !== 0 || (d.speed_kmh || 0) < 15) { live.gearShown = d.gear; live.nSince = null; }
+  else { live.nSince = live.nSince ?? now; if (now - live.nSince > 400) live.gearShown = 0; }
+  const gr = live.gearShown;
+  $("#lv-gear").textContent = gr == null ? "–" : gr < 0 ? "R" : gr === 0 ? "N" : String(gr);
   const rpmBar = $("#lv-rpm");
   rpmBar.parentElement.hidden = d.rpm_pct == null;
   if (d.rpm_pct != null) { rpmBar.style.width = `${Math.round(d.rpm_pct * 100)}%`; rpmBar.classList.toggle("hot", d.rpm_pct > 0.94); }
