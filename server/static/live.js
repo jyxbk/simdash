@@ -244,8 +244,9 @@ function render() {
   const flags = [];
   if (d.in_pit_lane) flags.push(h("span", { class: "flag pit" }, "Boxengasse"));
   if (d.lap_outlap) flags.push(h("span", { class: "flag" }, "Outlap"));
-  if (d.lap_invalid || d.valid_now === false) flags.push(h("span", { class: "flag bad" }, h("b", {}, "✕"), " ungültig"));
-  else if (d.valid_now === true) flags.push(h("span", { class: "flag ok" }, h("b", {}, "✓"), " gültig"));
+  // Nur den festen Rundenstatus des Collectors zeigen – der Momentwert springt am Rundenanfang
+  if (d.lap_invalid) flags.push(h("span", { class: "flag bad" }, h("b", {}, "✕"), " ungültig"));
+  else if (d.valid_now != null) flags.push(h("span", { class: "flag ok" }, h("b", {}, "✓"), " gültig"));
   $("#lv-flags").replaceChildren(...flags);
 
   // Delta zur Bestzeit
@@ -462,6 +463,7 @@ function renderTyres(t) {
   const tn = (k) => (t.tn && t.tn[k] ? t.tn[k] : t.tc && t.tc[k] ? t.tc[k] / 85 : null);
   const bn = (k) => (t.bn && t.bn[k] ? t.bn[k] : t.bt && t.bt[k] ? t.bt[k] / 450 : null);
   const faceN = (v, k) => (v == null ? null : t.tn && t.tc && t.tc[k] ? (v / t.tc[k]) * t.tn[k] : v / 85);
+  const locked = names.map((_, k) => held(`lock${k}`, !!(t.lock && t.lock[k])));
   const cells = names.map((nm, k) => {
     const c = heatColor(tn(k));
     const faces = ["ti", "tm", "to"].map((f) => (t[f] ? t[f][k] : null));
@@ -469,8 +471,8 @@ function renderTyres(t) {
     const order = k % 2 === 0 ? [2, 1, 0] : [0, 1, 2];
     const stripes = faces.some((v) => v) ? h("div", { class: "faces" }, order.map((j) => h("span", { style: `background:${heatColor(faceN(faces[j], k)) || "var(--surface-2)"}`, title: `${["innen", "mitte", "außen"][j]} ${num(faces[j])} °C` }))) : null;
     const bcol = heatColor(bn(k));
-    return h("div", { class: `tyre${t.lock && t.lock[k] ? " locked" : ""}`, style: c ? `--tc:${c}` : "" },
-      h("div", { class: "tyre-head" }, h("span", { class: "nm" }, nm), t.lock && t.lock[k] ? h("span", { class: "lockb" }, "blockiert") : null),
+    return h("div", { class: `tyre${locked[k] ? " locked" : ""}`, style: c ? `--tc:${c}` : "" },
+      h("div", { class: "tyre-head" }, h("span", { class: "nm" }, nm), h("span", { class: `lockb${locked[k] ? "" : " off"}` }, "blockiert")),
       h("div", { class: "temp" }, t.tc && t.tc[k] != null ? `${num(t.tc[k])}°` : "–"),
       stripes,
       h("div", { class: "row" }, h("span", {}, "Druck"), h("b", {}, t.tp && t.tp[k] != null ? `${num(t.tp[k], 1)} psi` : "–")),
@@ -511,8 +513,19 @@ function renderG(t) {
     h("div", {}, h("span", {}, lon < 0 ? "bremsen" : "beschleunigen"), h("b", {}, `${num(Math.abs(lon), 2)} G`)));
 }
 
-function kv(label, value, extra) {
-  return h("div", { class: `kv${extra ? " " + extra : ""}` }, h("span", {}, label), h("b", {}, value));
+function kv(label, value, extra, led) {
+  return h("div", { class: `kv${extra ? " " + extra : ""}` },
+    h("span", {}, led != null ? h("i", { class: `led${led ? " on" : ""}`, title: led ? "greift gerade" : "" }) : null, label),
+    h("b", {}, value));
+}
+
+/** Kurze Ereignisse (ABS/TC greift, Rad blockiert) mindestens HOLD_MS anzeigen – sonst flackert es. */
+const HOLD_MS = 800;
+live.holdUntil = {};
+function held(key, on) {
+  const now = performance.now();
+  if (on) live.holdUntil[key] = now + HOLD_MS;
+  return (live.holdUntil[key] || 0) > now;
 }
 
 function renderAssist(t) {
@@ -521,12 +534,13 @@ function renderAssist(t) {
   card.hidden = !has;
   if (!has) return;
   const items = [];
-  if (t.tc_lvl != null) items.push(kv("TC", `${t.tc_lvl}${t.tc_cut ? ` · Cut ${t.tc_cut}` : ""}`, t.tc_on ? "active" : ""));
-  if (t.abs_lvl != null) items.push(kv("ABS", String(t.abs_lvl), t.abs_on ? "active" : ""));
-  else if (t.abs_on) items.push(kv("ABS", "greift", "active"));
+  const tcOn = held("tc", t.tc_on), absOn = held("abs", t.abs_on);
+  if (t.tc_lvl != null) items.push(kv("TC", `${t.tc_lvl}${t.tc_cut ? ` · Cut ${t.tc_cut}` : ""}`, "", tcOn));
+  if (t.abs_lvl != null) items.push(kv("ABS", String(t.abs_lvl), "", absOn));
+  else if (t.abs_on != null) items.push(kv("ABS", absOn ? "greift" : "–", "", absOn));
   if (t.bb != null) items.push(kv("Bremsbalance", `${num(t.bb * 100, 1)} % vorn`));
   if (t.map != null) items.push(kv("Motor-Map", String(t.map)));
-  if (t.pit_lim) items.push(kv("Pit-Limiter", "an", "active"));
+  if (t.pit_lim) items.push(kv("Pit-Limiter", "an", "", true));
   $("#lv-assist").replaceChildren(...items);
   const st = t.steer;
   const bar = $("#lv-steer");
