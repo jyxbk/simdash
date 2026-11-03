@@ -6,6 +6,7 @@ Lesen ist im LAN offen, Schreiben braucht den Token aus SIMDASH_TOKEN.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import os
 import secrets
@@ -52,6 +53,23 @@ CREATE TABLE IF NOT EXISTS laps (
 CREATE INDEX IF NOT EXISTS idx_laps_combo ON laps(game, track, layout, car);
 CREATE INDEX IF NOT EXISTS idx_laps_recorded ON laps(recorded_at);
 -- Verlauf entlang der Runde (Zeit/Tempo/Pedale auf festem Raster), getrennt wegen Größe
+CREATE INDEX IF NOT EXISTS idx_laps_driver ON laps(driver);
+CREATE INDEX IF NOT EXISTS idx_laps_session ON laps(session_uid);
+-- Einstellungen: me = eigener Fahrername, current_driver = wer gerade am PC fährt
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+-- Streckenform aus Live-Positionen (auch ohne fertige Runde, z. B. Touristenfahrten)
+CREATE TABLE IF NOT EXISTS track_shapes (
+    game     TEXT NOT NULL,
+    track    TEXT NOT NULL,
+    layout   TEXT NOT NULL DEFAULT '',
+    data     TEXT NOT NULL,       -- JSON {"x": [...], "z": [...]} mit SHAPE_BINS Punkten
+    coverage REAL NOT NULL,
+    updated  TEXT NOT NULL,
+    PRIMARY KEY (game, track, layout)
+);
 CREATE TABLE IF NOT EXISTS lap_traces (
     uid   TEXT PRIMARY KEY REFERENCES laps(uid) ON DELETE CASCADE,
     data  TEXT NOT NULL
@@ -121,6 +139,71 @@ def require_token(authorization: str = Header(default="")) -> None:
         raise HTTPException(401, "Falscher Token")
 
 
+def require_lan(request: Request, authorization: str = Header(default="")) -> None:
+    """Bearbeiten aus der Oberfläche: mit Token oder aus dem Heimnetz (privat/loopback)."""
+    given = authorization.removeprefix("Bearer ").strip()
+    if TOKEN and given and secrets.compare_digest(given, TOKEN):
+        return
+    host = request.client.host if request.client else ""
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if host == "testclient" or (ip and (ip.is_private or ip.is_loopback)):
+        return
+    raise HTTPException(403, "Bearbeiten nur aus dem Heimnetz")
+
+
+# ---------------------------------------------------------------------------
+# Fahrer
+# ---------------------------------------------------------------------------
+CURRENT_DRIVER_IDLE_S = 3 * 3600   # „wer fährt“ fällt nach 3 h ohne Runde auf mich zurück
+
+
+def get_setting(con: sqlite3.Connection, key: str, default: str = "") -> str:
+    r = con.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return r[0] if r else default
+
+
+def set_setting(con: sqlite3.Connection, key: str, value: str) -> None:
+    con.execute("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, value))
+
+
+def me_name(con: sqlite3.Connection) -> str:
+    me = get_setting(con, "me")
+    if me:
+        return me
+    # Einmalig festlegen (häufigster Name) – sonst könnte ein Gast mit mehr Runden „ich“ werden
+    r = con.execute("SELECT driver FROM laps WHERE driver != '' GROUP BY driver ORDER BY COUNT(*) DESC LIMIT 1").fetchone()
+    if r:
+        set_setting(con, "me", r[0])
+        return r[0]
+    return ""
+
+
+def current_driver(con: sqlite3.Connection) -> str:
+    """Wer gerade fährt (leer = ich). Läuft nach CURRENT_DRIVER_IDLE_S ohne Aktivität ab."""
+    name = get_setting(con, "current_driver")
+    if not name:
+        return ""
+    last = float(get_setting(con, "current_driver_active", "0") or 0)
+    if time.time() - last > CURRENT_DRIVER_IDLE_S:
+        set_setting(con, "current_driver", "")
+        return ""
+    return name
+
+
+class DriverIn(BaseModel):
+    driver: str = Field(default="", max_length=80)
+
+
+class AssignIn(BaseModel):
+    driver: str = Field(min_length=1, max_length=80)
+    ids: list[int] | None = Field(default=None, max_length=5000)
+    session_uid: str | None = Field(default=None, max_length=64)
+
+
 def _bool(v: bool | None) -> int | None:
     return None if v is None else int(v)
 
@@ -156,7 +239,64 @@ LIVE_MAX_BYTES = 16384
 
 def live_view() -> dict:
     age = time.time() - LIVE["at"] if LIVE["at"] else None
-    return {"data": LIVE["data"], "age_s": None if age is None else round(age, 2), "seq": LIVE["seq"]}
+    return {"data": LIVE["data"], "age_s": None if age is None else round(age, 2), "seq": LIVE["seq"],
+            "driver": LIVE.get("driver", ""), "me": LIVE.get("me", "")}
+
+
+SHAPE_BINS = 1000
+SHAPES: dict[tuple, dict] = {}      # (game, track, layout) -> {"x": [...], "z": [...], "dirty": bool, "saved": t}
+
+
+def _shape_for(key: tuple) -> dict:
+    sh = SHAPES.get(key)
+    if sh is None:
+        sh = {"x": [None] * SHAPE_BINS, "z": [None] * SHAPE_BINS, "dirty": False, "saved": time.time()}
+        with db() as con:
+            r = con.execute("SELECT data FROM track_shapes WHERE game=? AND track=? AND layout=?", key).fetchone()
+        if r:
+            d = json.loads(r[0])
+            if len(d.get("x", [])) == SHAPE_BINS:
+                sh["x"], sh["z"] = d["x"], d["z"]
+        SHAPES[key] = sh
+    return sh
+
+
+def save_shape(key: tuple, sh: dict) -> None:
+    cov = sum(v is not None for v in sh["x"]) / SHAPE_BINS
+    with db() as con:
+        con.execute("""INSERT INTO track_shapes (game, track, layout, data, coverage, updated) VALUES (?,?,?,?,?,?)
+                       ON CONFLICT(game, track, layout) DO UPDATE SET data=excluded.data,
+                       coverage=excluded.coverage, updated=excluded.updated""",
+                    (*key, json.dumps({"x": sh["x"], "z": sh["z"]}, separators=(",", ":")), cov,
+                     datetime.now(timezone.utc).isoformat(timespec="seconds")))
+    sh["dirty"], sh["saved"] = False, time.time()
+
+
+def learn_shape(d: dict) -> None:
+    """Live-Position in die Streckenform eintragen (Box und Start/Ziel-Umbruch ausgenommen)."""
+    try:
+        if d.get("state") != "live" or d.get("paused") or d.get("in_pit_lane"):
+            return
+        x, z, n = d.get("pos_x"), d.get("pos_z"), d.get("npos")
+        if x is None or z is None or n is None or not (0.002 < float(n) < 0.998):
+            return
+        if (d.get("speed_kmh") or 0) < 5:
+            return
+        key = (str(d["game"]), str(d["track"]), str(d.get("layout") or ""))
+    except (KeyError, TypeError, ValueError):
+        return
+    sh = _shape_for(key)
+    i = min(SHAPE_BINS - 1, int(float(n) * SHAPE_BINS))
+    if sh["x"][i] is None:
+        sh["dirty"] = True
+    sh["x"][i], sh["z"][i] = round(float(x), 1), round(float(z), 1)
+    if sh["dirty"] and time.time() - sh["saved"] > 15:
+        save_shape(key, sh)
+
+
+def refresh_live_driver() -> None:
+    with db() as con:
+        LIVE["driver"], LIVE["me"] = current_driver(con), me_name(con)
 
 
 @app.post("/api/live", dependencies=[Depends(require_token)])
@@ -170,6 +310,10 @@ async def post_live(request: Request) -> dict:
         raise HTTPException(400, "kein JSON")
     if not isinstance(data, dict):
         raise HTTPException(400, "Objekt erwartet")
+    if time.time() - LIVE.get("driver_at", 0) > 2:
+        refresh_live_driver()
+        LIVE["driver_at"] = time.time()
+    learn_shape(data)
     LIVE.update(data=data, at=time.time(), seq=LIVE["seq"] + 1)
     return {"ok": True}
 
@@ -205,7 +349,12 @@ def add_laps(laps: list[LapIn]) -> dict:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     added = 0
     with db() as con:
+        cur_driver = current_driver(con)
+        if cur_driver and laps:
+            set_setting(con, "current_driver_active", str(time.time()))
         for lap in laps:
+            if cur_driver:
+                lap.driver = cur_driver
             cur = con.execute(
                 """INSERT OR IGNORE INTO laps (uid, game, track, layout, car, session_uid,
                    session_type, lap_number, lap_time_ms, valid, estimated, outlap, inlap,
@@ -228,9 +377,10 @@ def add_laps(laps: list[LapIn]) -> dict:
 
 
 def _filters(game: str | None, track: str | None, car: str | None,
-             layout: str | None = None) -> tuple[str, list]:
+             layout: str | None = None, driver: str | None = None) -> tuple[str, list]:
+    """driver: Name, oder leer = alle Fahrer."""
     where, args = [], []
-    for col, val in (("game", game), ("track", track), ("car", car), ("layout", layout)):
+    for col, val in (("game", game), ("track", track), ("car", car), ("layout", layout), ("driver", driver)):
         if val:
             where.append(f"{col} = ?")
             args.append(val)
@@ -243,9 +393,14 @@ def list_laps(
     track: str | None = None,
     car: str | None = None,
     layout: str | None = None,
+    driver: str | None = None,
+    session_uid: str | None = None,
     limit: int = Query(default=100, ge=1, le=5000),
 ) -> list[dict]:
-    where, args = _filters(game, track, car, layout)
+    where, args = _filters(game, track, car, layout, driver)
+    if session_uid:
+        where += (" AND " if where else " WHERE ") + "session_uid = ?"
+        args.append(session_uid)
     with db() as con:
         rows = con.execute(
             f"""SELECT laps.*, EXISTS(SELECT 1 FROM lap_traces t WHERE t.uid = laps.uid) AS has_trace
@@ -256,9 +411,10 @@ def list_laps(
 
 
 @app.get("/api/bests")
-def bests(game: str | None = None, track: str | None = None, car: str | None = None) -> list[dict]:
+def bests(game: str | None = None, track: str | None = None, car: str | None = None,
+          driver: str | None = None) -> list[dict]:
     """Pro Spiel/Strecke/Layout/Auto: beste gültige Runde, beste Runde insgesamt, Anzahl."""
-    where, args = _filters(game, track, car)
+    where, args = _filters(game, track, car, driver=driver)
     with db() as con:
         combos = con.execute(
             f"""SELECT game, track, layout, car, COUNT(*) AS laps,
@@ -269,8 +425,8 @@ def bests(game: str | None = None, track: str | None = None, car: str | None = N
         ).fetchall()
         out = []
         for c in combos:
-            key = (c["game"], c["track"], c["layout"], c["car"])
-            base = "SELECT * FROM laps WHERE game=? AND track=? AND layout=? AND car=?"
+            key = (c["game"], c["track"], c["layout"], c["car"]) + ((driver,) if driver else ())
+            base = "SELECT * FROM laps WHERE game=? AND track=? AND layout=? AND car=?" + (" AND driver=?" if driver else "")
             best_valid = con.execute(
                 base + " AND COALESCE(valid,1)=1 AND estimated=0 ORDER BY lap_time_ms LIMIT 1", key
             ).fetchone()
@@ -284,15 +440,15 @@ def bests(game: str | None = None, track: str | None = None, car: str | None = N
 
 
 @app.get("/api/traces")
-def traces(game: str, track: str, car: str, layout: str = "",
+def traces(game: str, track: str, car: str, layout: str = "", driver: str | None = None,
            limit: int = Query(default=200, ge=1, le=1000)) -> list[dict]:
     """Runden mit Verlauf für eine Kombination (neueste zuerst) – für Delta, Sektoren, Ideallauf."""
     with db() as con:
         rows = con.execute(
-            """SELECT l.*, t.data AS trace FROM laps l JOIN lap_traces t ON t.uid = l.uid
-               WHERE l.game=? AND l.track=? AND l.layout=? AND l.car=?
+            f"""SELECT l.*, t.data AS trace FROM laps l JOIN lap_traces t ON t.uid = l.uid
+               WHERE l.game=? AND l.track=? AND l.layout=? AND l.car=?{" AND l.driver=?" if driver else ""}
                ORDER BY l.recorded_at DESC LIMIT ?""",
-            (game, track, layout, car, limit),
+            (game, track, layout, car, *((driver,) if driver else ()), limit),
         ).fetchall()
     out = []
     for r in rows:
@@ -305,29 +461,72 @@ def traces(game: str, track: str, car: str, layout: str = "",
 
 
 @app.get("/api/trackmap")
-def trackmap(game: str, track: str, layout: str = "") -> dict:
-    """Streckenform (x/z je 0,5 % der Runde) aus der neuesten Runde mit Positionsdaten –
-    egal mit welchem Auto. So bekommen auch alte Runden ohne Position eine Karte."""
+def trackmap(game: str, track: str, layout: str = "", points: int = Query(default=200, ge=50, le=SHAPE_BINS)) -> dict:
+    """Streckenform mit `points` Punkten entlang der Runde (Index = Anteil der Runde).
+
+    Quelle: aufgezeichnete Live-Form (beliebig viele Fahrten, auch ohne fertige Runde) oder,
+    falls die dünner ist, die neueste Runde mit Positionsdaten – egal mit welchem Auto."""
+    key = (game, track, layout)
+    shape = SHAPES.get(key)
+    if shape is None:
+        with db() as con:
+            r = con.execute("SELECT data FROM track_shapes WHERE game=? AND track=? AND layout=?", key).fetchone()
+        shape = json.loads(r[0]) if r else None
+    shape_cov = sum(v is not None for v in shape["x"]) / SHAPE_BINS if shape else 0.0
+
+    lap_shape, lap_cov = None, 0.0
     with db() as con:
         rows = con.execute(
             """SELECT t.data FROM laps l JOIN lap_traces t ON t.uid = l.uid
                WHERE l.game=? AND l.track=? AND l.layout=? AND t.data LIKE '%"x":[%'
-               ORDER BY COALESCE(l.valid,1) DESC, l.recorded_at DESC LIMIT 20""",
-            (game, track, layout),
-        ).fetchall()
-    best = None
+               ORDER BY COALESCE(l.valid,1) DESC, l.recorded_at DESC LIMIT 20""", key).fetchall()
     for r in rows:
         d = json.loads(r["data"])
-        n = sum(v is not None for v in (d.get("x") or []))
-        if n > 100 and (best is None or n > best[0]):
-            best = (n, {"step": d["step"], "x": d["x"], "z": d["z"]})
-    return best[1] if best else {"x": None, "z": None}
+        xs = d.get("x") or []
+        cov = sum(v is not None for v in xs) / max(1, len(xs))
+        if cov > lap_cov:
+            lap_shape, lap_cov = d, cov
+
+    src = None
+    if shape and shape_cov >= max(0.05, lap_cov - 0.02):
+        src, cov, kind = shape, shape_cov, "live"
+    elif lap_shape and lap_cov > 0.5:
+        src, cov, kind = lap_shape, lap_cov, "lap"
+    if src is None:
+        return {"x": None, "z": None, "coverage": 0.0}
+    m = len(src["x"])
+
+    def sample(arr):   # auf `points` Punkte bringen (nächster vorhandener Wert im Fenster)
+        out = []
+        for i in range(points):
+            a, b = int(i * m / points), max(int(i * m / points) + 1, int((i + 1) * m / points))
+            vals = [v for v in arr[a:b] if v is not None]
+            out.append(vals[0] if vals else None)
+        return out
+    def fill(arr, max_gap=max(3, points // 60)):   # kleine Lücken zwischen Proben linear schließen
+        out, i = list(arr), 0
+        while i < len(out):
+            if out[i] is None:
+                j = i
+                while j < len(out) and out[j] is None:
+                    j += 1
+                if 0 < i and j < len(out) and j - i <= max_gap:
+                    a, b = out[i - 1], out[j]
+                    for k in range(i, j):
+                        out[k] = round(a + (b - a) * (k - i + 1) / (j - i + 1), 1)
+                i = j
+            else:
+                i += 1
+        return out
+    return {"step": 1 / points, "x": fill(sample(src["x"])), "z": fill(sample(src["z"])),
+            "coverage": round(cov, 3), "source": kind}
 
 
 @app.get("/api/stats")
-def stats(game: str | None = None, track: str | None = None, car: str | None = None) -> dict:
+def stats(game: str | None = None, track: str | None = None, car: str | None = None,
+          driver: str | None = None) -> dict:
     """Kennzahlen für die Kopfzeile."""
-    where, args = _filters(game, track, car)
+    where, args = _filters(game, track, car, driver=driver)
     with db() as con:
         r = con.execute(
             f"""SELECT COUNT(*) AS laps,
@@ -350,7 +549,52 @@ def filters() -> dict:
         def distinct(col: str) -> list[str]:
             return [r[0] for r in con.execute(f"SELECT DISTINCT {col} FROM laps ORDER BY {col}")]
         total = con.execute("SELECT COUNT(*) FROM laps").fetchone()[0]
-        return {"games": distinct("game"), "tracks": distinct("track"), "cars": distinct("car"), "total": total}
+        return {"games": distinct("game"), "tracks": distinct("track"), "cars": distinct("car"),
+                "drivers": distinct("driver"), "total": total}
+
+
+@app.get("/api/drivers")
+def drivers() -> dict:
+    with db() as con:
+        rows = con.execute("SELECT driver, COUNT(*) AS laps, MAX(recorded_at) AS last FROM laps "
+                           "GROUP BY driver ORDER BY laps DESC").fetchall()
+        return {"me": me_name(con), "current": current_driver(con),
+                "drivers": [{"name": r["driver"], "laps": r["laps"], "last": r["last"]} for r in rows]}
+
+
+@app.post("/api/drivers/current", dependencies=[Depends(require_lan)])
+def set_current_driver(body: DriverIn) -> dict:
+    """Wer fährt gerade? Neue Runden bekommen diesen Namen. Leer oder eigener Name = ich."""
+    name = body.driver.strip()
+    with db() as con:
+        if name == me_name(con):
+            name = ""
+        set_setting(con, "current_driver", name)
+        set_setting(con, "current_driver_active", str(time.time()))
+        return {"current": name, "me": me_name(con)}
+
+
+@app.post("/api/drivers/me", dependencies=[Depends(require_lan)])
+def set_me(body: DriverIn) -> dict:
+    with db() as con:
+        set_setting(con, "me", body.driver.strip())
+        return {"me": me_name(con)}
+
+
+@app.post("/api/laps/driver", dependencies=[Depends(require_lan)])
+def assign_driver(body: AssignIn) -> dict:
+    """Runden (ids) oder eine ganze Session einem Fahrer zuordnen."""
+    if not body.ids and not body.session_uid:
+        raise HTTPException(400, "ids oder session_uid angeben")
+    with db() as con:
+        n = 0
+        if body.ids:
+            n += con.execute(f"UPDATE laps SET driver=? WHERE id IN ({','.join('?' * len(body.ids))})",
+                             (body.driver.strip(), *body.ids)).rowcount
+        if body.session_uid:
+            n += con.execute("UPDATE laps SET driver=? WHERE session_uid=?",
+                             (body.driver.strip(), body.session_uid)).rowcount
+    return {"updated": n}
 
 
 @app.patch("/api/laps/{lap_id}", dependencies=[Depends(require_token)])

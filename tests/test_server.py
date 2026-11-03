@@ -128,3 +128,36 @@ def test_trackmap_from_other_car(client):
     m = client.get("/api/trackmap", params={"game": "acevo", "track": "road_atlanta"}).json()
     assert m["x"][199] == 199.0
     assert client.get("/api/trackmap", params={"game": "acevo", "track": "spa"}).json()["x"] is None
+
+
+def test_drivers_assign_and_current(client):
+    client.post("/api/laps", headers=AUTH, json=[lap("dddddddd1", 81000, driver="Alex"), lap("dddddddd2", 80000, driver="Alex")])
+    d = client.get("/api/drivers").json()
+    me = d["me"]
+    assert me == "Alex"
+    laps = client.get("/api/laps").json()
+    fast = next(l for l in laps if l["lap_time_ms"] == 80000)
+    assert client.post("/api/laps/driver", json={"driver": "Max", "ids": [fast["id"]]}).json()["updated"] == 1
+    mine = client.get("/api/bests", params={"driver": me}).json()
+    assert mine[0]["best_valid"]["lap_time_ms"] == 81000
+    assert client.get("/api/bests", params={"driver": "Max"}).json()[0]["best_valid"]["lap_time_ms"] == 80000
+    # wer fährt: neue Runden bekommen den Namen
+    assert client.post("/api/drivers/current", json={"driver": "Max"}).json()["current"] == "Max"
+    client.post("/api/laps", headers=AUTH, json=[lap("dddddddd3", 79000)])
+    assert client.get("/api/laps", params={"driver": "Max"}).json()[0]["lap_time_ms"] == 79000
+    assert client.post("/api/drivers/current", json={"driver": me}).json()["current"] == ""
+    assert "Max" in client.get("/api/filters").json()["drivers"]
+
+
+def test_trackmap_from_live_positions(client):
+    import math
+    for k in range(400):
+        n = 0.01 + k * 0.0012          # Touristenfahrt: nur halbe Strecke, keine fertige Runde
+        r = client.post("/api/live", headers=AUTH, json={
+            "state": "live", "game": "acevo", "track": "Nurburgring", "layout": "Touristenfahrten",
+            "npos": n, "pos_x": 1000 * math.cos(n * 6.28), "pos_z": 800 * math.sin(n * 6.28),
+            "speed_kmh": 150, "in_pit_lane": False, "paused": False})
+        assert r.status_code == 200
+    m = client.get("/api/trackmap", params={"game": "acevo", "track": "Nurburgring", "layout": "Touristenfahrten", "points": 1000}).json()
+    assert m["source"] == "live" and 0.3 < m["coverage"] < 0.6
+    assert m["x"][100] is not None and m["x"][900] is None

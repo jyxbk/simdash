@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>SimDash</title>
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/style.css?v=0.5.4">
+  <link rel="stylesheet" href="/static/style.css?v=0.6">
 </head>
 <body class="viz-root" data-palette="#3987e5">
   <header class="topbar">
@@ -29,6 +29,7 @@
     <div class="selects">
       <select id="f-track" aria-label="Strecke"><option value="">Alle Strecken</option></select>
       <select id="f-car" aria-label="Auto"><option value="">Alle Autos</option></select>
+      <span class="driver-filter"><select id="f-driver" aria-label="Fahrer"></select></span>
     </div>
   </nav>
 
@@ -91,7 +92,12 @@
         <div class="live-state" id="lv-state" aria-live="polite"></div>
         <div class="live-what" id="lv-what"></div>
       </div>
-      <div class="live-sub" id="lv-sub"></div>
+      <div class="live-right">
+        <label class="lv-driver">Es fährt
+          <select id="lv-driver" aria-label="Wer fährt gerade?"></select>
+        </label>
+        <div class="live-sub" id="lv-sub"></div>
+      </div>
     </div>
 
     <div class="live-hero">
@@ -181,6 +187,24 @@
 
   <div id="tooltip" class="tooltip" role="status" hidden></div>
 
+  <dialog id="driver-dialog" class="dialog" aria-labelledby="dd-title">
+    <form id="dd-form" method="dialog">
+      <h3 id="dd-title">Fahrer zuordnen</h3>
+      <label class="dd-field">Fahrer
+        <input id="dd-name" list="dd-names" autocomplete="off" maxlength="80" placeholder="Name, z. B. Max">
+        <datalist id="dd-names"></datalist>
+      </label>
+      <div class="chips dd-quick" id="dd-quick"></div>
+      <div class="dd-laps-head"><label><input type="checkbox" id="dd-all" checked> alle Runden</label></div>
+      <div class="dd-laps" id="dd-laps"></div>
+      <div class="dd-error" id="dd-error" role="alert"></div>
+      <div class="dd-actions">
+        <button type="button" class="ghost" id="dd-cancel">Abbrechen</button>
+        <button type="submit" class="primary">Speichern</button>
+      </div>
+    </form>
+  </dialog>
+
   <template id="tpl-empty">
     <div class="empty">
       <img src="/static/icon.svg" alt="" width="40" height="40">
@@ -188,7 +212,7 @@
     </div>
   </template>
 
-  <script src="/static/app.js?v=0.5.4"></script>
-  <script src="/static/live.js?v=0.5.4"></script>
+  <script src="/static/app.js?v=0.6"></script>
+  <script src="/static/live.js?v=0.6"></script>
 </body>
 </html>

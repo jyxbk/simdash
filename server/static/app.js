@@ -75,7 +75,8 @@ function fmtDuration(ms) {
 
 const comboKey = (x) => [x.game, x.track, x.layout, x.car].join("␟");
 const isCounting = (l) => l.valid !== false && !l.estimated;   // zählt für die Bestzeit
-const comboQuery = (c) => new URLSearchParams({ game: c.game, track: c.track, layout: c.layout, car: c.car, limit: 5000 });
+const driverParam = () => (state.driver && state.driver !== ALL_DRIVERS ? { driver: state.driver } : {});
+const comboQuery = (c, extra = driverParam()) => new URLSearchParams({ game: c.game, track: c.track, layout: c.layout, car: c.car, limit: 5000, ...extra });
 
 async function getJSON(url) {
   const r = await fetch(url);
@@ -86,11 +87,13 @@ async function getJSON(url) {
 // ---------------------------------------------------------------------------
 // Zustand
 // ---------------------------------------------------------------------------
-const state = { game: "", track: "", car: "", selected: null, laps: [], bests: [], detail: null, sessionsShown: 5 };
+const state = { game: "", track: "", car: "", driver: null, me: "", drivers: [], selected: null, laps: [], bests: [], detail: null, sessionsShown: 5 };
+const ALL_DRIVERS = "__alle__";
 
 function query(extra = {}) {
   const p = new URLSearchParams();
   for (const k of ["game", "track", "car"]) if (state[k]) p.set(k, state[k]);
+  if (state.driver && state.driver !== ALL_DRIVERS) p.set("driver", state.driver);
   for (const [k, v] of Object.entries(extra)) if (v != null) p.set(k, v);
   return p.toString();
 }
@@ -240,6 +243,7 @@ function lapBadges(l, pbId) {
     l.estimated ? h("span", { class: "badge warn", title: "Zeit aus der laufenden Uhr an der Ziellinie (Rundenzähler fehlte)" }, "≈ geschätzt") : null,
     l.outlap ? h("span", { class: "badge" }, "Outlap") : null,
     l.inlap ? h("span", { class: "badge" }, "Inlap") : null,
+    l.driver && state.me && l.driver !== state.me ? h("span", { class: "badge driver" }, l.driver) : null,
   ];
 }
 
@@ -267,7 +271,11 @@ function renderSessions(laps, bests) {
           h("div", { class: "what" }, trackName(first), " ", h("span", { class: "car" }, `· ${pretty(first.car)}`)),
           h("div", { class: "info" },
             `${gameName(first.game)} · ${SESSION_NAMES[first.session_type] || first.session_type || "Session"}${first.online ? " · online" : ""} · ${fmtDate(last.recorded_at)} · ${ls.length} ${ls.length === 1 ? "Runde" : "Runden"}`)),
-        h("div", { class: "session-best" }, "Beste Runde ", h("b", {}, sBest ? fmt(sBest) : "–"))),
+        h("div", { class: "session-side" },
+          h("div", { class: "session-best" }, "Beste Runde ", h("b", {}, sBest ? fmt(sBest) : "–")),
+          h("button", { class: "driver-btn", type: "button", title: "Fahrer dieser Session ändern",
+            onclick: () => openDriverDialog(ls, `Wer ist diese Session gefahren? · ${trackName(first)}`) },
+            "✎ ", first.driver && first.driver !== state.me ? first.driver : "Ich"))),
       h("table", {},
         h("thead", {}, h("tr", {},
           h("th", { class: "num lapno" }, "#"), h("th", { class: "num tcol" }, "Zeit"),
@@ -428,7 +436,9 @@ function renderDetailTable(laps, pb) {
     h("td", { class: "num hide-sm" }, pb && isCounting(l) && l.id !== pb.id ? fmtDelta(l.lap_time_ms - pb.lap_time_ms) : ""),
     h("td", {}, lapBadges(l, pb && pb.id), l.note ? h("span", { class: "note" }, ` ${l.note}`) : null),
   ));
-  $("#detail-table").replaceChildren(h("table", {},
+  $("#detail-table").replaceChildren(
+    h("button", { class: "driver-btn", type: "button", onclick: () => openDriverDialog([...laps].reverse(), "Runden einem Fahrer zuordnen") }, "✎ Fahrer zuordnen"),
+    h("table", {},
     h("thead", {}, h("tr", {}, h("th", {}, "Wann"), h("th", { class: "num" }, "#"), h("th", { class: "num" }, "Zeit"), h("th", { class: "num hide-sm" }, "zur PB"), h("th", {}, ""))),
     h("tbody", {}, rows)));
 }
@@ -439,6 +449,10 @@ function renderDetailTable(laps, pb) {
 async function load() {
   document.body.classList.add("loading");
   try {
+    if (state.driver == null) {
+      const dr = await getJSON("/api/drivers");
+      Object.assign(state, { me: dr.me, driver: dr.me || ALL_DRIVERS });
+    }
     const q = query();
     const [f, st, bests, laps] = await Promise.all([
       getJSON("/api/filters"), getJSON(`/api/stats?${q}`), getJSON(`/api/bests?${q}`), getJSON(`/api/laps?${query({ limit: 2000 })}`),
@@ -447,6 +461,7 @@ async function load() {
     renderChips(f.games);
     fillSelect($("#f-track"), f.tracks, "Alle Strecken", "track");
     fillSelect($("#f-car"), f.cars, "Alle Autos", "car");
+    renderDriverSelect(f.drivers || []);
     renderStatus(st);
     renderHero(laps);
     renderTiles(st);
@@ -467,6 +482,52 @@ async function load() {
 
 $("#f-track").addEventListener("change", (e) => { state.track = e.target.value; load(); });
 $("#f-car").addEventListener("change", (e) => { state.car = e.target.value; load(); });
+$("#f-driver").addEventListener("change", (e) => { state.driver = e.target.value; state.selected = null; $("#detail").hidden = true; load(); });
+
+function renderDriverSelect(names) {
+  state.drivers = names.filter(Boolean);
+  const others = state.drivers.filter((n) => n !== state.me);
+  const el = $("#f-driver");
+  el.replaceChildren(
+    h("option", { value: state.me || ALL_DRIVERS }, state.me ? `Ich (${state.me})` : "Ich"),
+    ...others.map((n) => h("option", { value: n }, n)),
+    h("option", { value: ALL_DRIVERS }, "Alle Fahrer"));
+  el.value = state.driver;
+  el.parentElement.hidden = !others.length && state.driver !== ALL_DRIVERS && !names.includes("");
+}
+
+/* --- Fahrer zuordnen (Session oder einzelne Runden) ------------------------- */
+function openDriverDialog(laps, title) {
+  const dlg = $("#driver-dialog");
+  const cur = laps[0].driver || "";
+  $("#dd-title").textContent = title;
+  $("#dd-name").value = cur;
+  $("#dd-names").replaceChildren(...[...new Set([state.me, ...state.drivers])].filter(Boolean).map((n) => h("option", { value: n })));
+  $("#dd-quick").replaceChildren(...[...new Set([state.me, ...state.drivers])].filter(Boolean).map((n) =>
+    h("button", { type: "button", class: "chip", "aria-pressed": String(n === cur), onclick: () => { $("#dd-name").value = n; for (const b of $("#dd-quick").children) b.setAttribute("aria-pressed", String(b.textContent === n || b.textContent === `Ich (${n})`)); } }, n === state.me ? `Ich (${n})` : n)));
+  $("#dd-laps").replaceChildren(...laps.map((l) => h("label", { class: "dd-lap" },
+    h("input", { type: "checkbox", value: l.id, checked: true }),
+    h("span", { class: "num" }, `R${l.lap_number ?? "?"}`), h("span", { class: "num" }, fmt(l.lap_time_ms)),
+    h("span", { class: "muted" }, l.driver || "–"))));
+  $("#dd-error").textContent = "";
+  dlg.showModal();
+  $("#dd-name").focus();
+}
+$("#dd-cancel").addEventListener("click", () => $("#driver-dialog").close());
+$("#dd-all").addEventListener("change", (e) => { for (const c of $("#dd-laps").querySelectorAll("input")) c.checked = e.target.checked; });
+$("#dd-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = $("#dd-name").value.trim();
+  const ids = [...$("#dd-laps").querySelectorAll("input:checked")].map((c) => Number(c.value));
+  if (!name) { $("#dd-error").textContent = "Bitte einen Namen eingeben."; return; }
+  if (!ids.length) { $("#dd-error").textContent = "Keine Runde ausgewählt."; return; }
+  try {
+    const r = await fetch("/api/laps/driver", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ driver: name, ids }) });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.status);
+    $("#driver-dialog").close();
+    load();
+  } catch (err) { $("#dd-error").textContent = `Speichern fehlgeschlagen: ${err.message}`; }
+});
 $("#detail-close").addEventListener("click", () => {
   $("#detail").hidden = true; state.selected = null; $("#tooltip").hidden = true; renderBests(state.bests, state.laps);
 });
@@ -515,7 +576,7 @@ function idealLap(traced) {
 
 async function loadAnalysis(c) {
   analysis.c = c;
-  const traced = await getJSON(`/api/traces?${new URLSearchParams({ game: c.game, track: c.track, layout: c.layout, car: c.car })}`);
+  const traced = await getJSON(`/api/traces?${new URLSearchParams({ game: c.game, track: c.track, layout: c.layout, car: c.car, ...driverParam() })}`);
   analysis.traced = traced;
   analysis.geo = null;
   if (!traced.some((l) => l.trace.x && l.trace.x.filter((v) => v != null).length > 100)) {

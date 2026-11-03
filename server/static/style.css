@@ -526,3 +526,32 @@ footer a { color: var(--series-1); text-decoration: none; }
 
 @media (max-width: 1100px) { .lv-tele-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 600px) { .lv-tele-grid { grid-template-columns: 1fr; } .lv-trace-box { height: 100px; } }
+
+/* --- Fahrer ----------------------------------------------------------------- */
+.driver-filter select { min-width: 9rem; }
+.driver-filter[hidden] { display: none; }
+.session-side { display: flex; flex-direction: column; align-items: flex-end; gap: .35rem; }
+.driver-btn { font-size: .78rem; padding: .2rem .6rem; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-secondary); cursor: pointer; }
+.driver-btn:hover { color: var(--text-primary); border-color: var(--axis); }
+#detail-table .driver-btn { margin: .4rem 0 .5rem; }
+.badge.driver { color: var(--text-primary); border-color: rgba(57, 135, 229, .55); }
+.live-right { display: flex; flex-direction: column; align-items: flex-end; gap: .3rem; }
+.lv-driver { display: inline-flex; align-items: center; gap: .45rem; font-size: .8rem; color: var(--text-muted); }
+.lv-driver select { padding: .25rem .5rem; font-size: .88rem; }
+.lv-driver.guest select { border-color: var(--warning); box-shadow: 0 0 0 2px rgba(250, 178, 25, .25); }
+.dialog { background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.1rem 1.2rem; width: min(440px, 92vw); max-height: 86vh; }
+.dialog::backdrop { background: rgba(0, 0, 0, .6); }
+.dialog h3 { margin: 0 0 .8rem; font-size: 1.05rem; }
+.dd-field { display: grid; gap: .3rem; font-size: .8rem; color: var(--text-muted); }
+.dd-field input { font: inherit; font-size: 1rem; color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: .5rem .6rem; }
+.dd-quick { flex-wrap: wrap; margin: .6rem 0; }
+.dd-laps-head { font-size: .8rem; color: var(--text-muted); margin: .4rem 0 .2rem; }
+.dd-laps { max-height: 34vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.dd-lap { display: grid; grid-template-columns: auto 3rem 5.5rem 1fr; gap: .5rem; align-items: center; padding: .35rem .6rem; border-bottom: 1px solid var(--border); font-size: .88rem; }
+.dd-lap:last-child { border-bottom: 0; }
+.dd-lap .muted { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd-error { color: #e66767; font-size: .85rem; min-height: 1.2em; margin-top: .4rem; }
+.dd-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: .4rem; }
+.dd-actions button { font: inherit; border-radius: 8px; padding: .45rem .95rem; cursor: pointer; border: 1px solid var(--border); }
+.dd-actions .primary { background: var(--text-primary); color: var(--page); border-color: var(--text-primary); font-weight: 650; }
+.dd-actions .ghost { background: transparent; color: var(--text-secondary); }

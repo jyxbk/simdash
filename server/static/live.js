@@ -55,7 +55,16 @@ async function pollLiveDot() {
 }
 
 /* --- Daten ----------------------------------------------------------------- */
+function liveDriverParam() { return live.driver ? { driver: live.driver } : {}; }
+
 function onLive(msg) {
+  // Wer fährt? (leer = ich) – bei Wechsel Bestzeit und Runden des Fahrers laden
+  const drv = msg.driver || msg.me || "";
+  if (drv !== live.driver) {
+    live.driver = drv; live.me = msg.me || ""; live.drvCurrent = msg.driver || "";
+    renderDriverPick();
+    if (live.combo) { live.pb = null; loadPb(); loadLaps(); }
+  }
   live.age = msg.age_s;
   live.rxAt = performance.now();
   const d = msg.data;
@@ -86,15 +95,14 @@ function onLive(msg) {
 async function loadPb() {
   const c = live.combo;
   try {
-    const traced = await getJSON(`/api/traces?${new URLSearchParams({ game: c.game, track: c.track, layout: c.layout, car: c.car })}`);
+    const traced = await getJSON(`/api/traces?${new URLSearchParams({ game: c.game, track: c.track, layout: c.layout, car: c.car, ...liveDriverParam() })}`);
     if (live.combo !== c) return;
     const counting = traced.filter(isCounting).sort((a, b) => a.lap_time_ms - b.lap_time_ms);
     const pb = counting[0] || null;
-    let geo = [pb, ...traced].find((l) => l && l.trace.x && l.trace.x.filter((v) => v != null).length > 100) || null;
-    if (!geo) {
-      const tm = await getJSON(`/api/trackmap?${new URLSearchParams({ game: c.game, track: c.track, layout: c.layout })}`).catch(() => ({}));
-      if (tm.x) geo = { id: "trackmap", trace: tm };
-    }
+    // Streckenform: Server wählt die beste Quelle (Live-Aufzeichnung mit 1000 Punkten oder Runde)
+    const tm = await getJSON(`/api/trackmap?${new URLSearchParams({ game: c.game, track: c.track, layout: c.layout, points: 1000 })}`).catch(() => ({}));
+    let geo = tm.x ? { id: `trackmap:${tm.coverage}`, trace: tm, coverage: tm.coverage } : null;
+    if (!geo) geo = [pb, ...traced].find((l) => l && l.trace.x && l.trace.x.filter((v) => v != null).length > 100) || null;
     const changed = !live.pb || !pb || live.pb.id !== pb.id;
     live.pb = pb;
     live.pbSectors = pb ? sectorTimes(pb) : null;
@@ -107,7 +115,7 @@ async function loadPb() {
 async function loadLaps() {
   const c = live.combo;
   try {
-    const laps = await getJSON(`/api/laps?${comboQuery({ ...c })}`.replace(/limit=\d+/, "limit=300"));
+    const laps = await getJSON(`/api/laps?${comboQuery({ ...c }, liveDriverParam())}`.replace(/limit=\d+/, "limit=300"));
     if (live.combo !== c) return;
     live.laps = laps;
     renderLaps();
@@ -209,10 +217,10 @@ function buildLiveMap(geo) {
   // bereits gesammelte Spur nachzeichnen
   const old = live.trail; live.trail = [];
   for (const p of old) addTrail({ npos: p.npos, current_ms: p.t, pos_x: p.x, pos_z: p.z, speed_kmh: p.v });
-  $("#lv-map-legend").replaceChildren(
+  $("#lv-map-legend").replaceChildren(...(!live.pb ? [h("span", { class: "key muted" }, "Noch keine Bestzeit zum Vergleich – die Spur ist grau, die Karte wächst beim Fahren mit.")] : [
     h("span", { class: "key" }, h("span", { class: "mark-loss" }), "langsamer"),
     h("span", { class: "key" }, h("span", { class: "mark-gain" }), "schneller"),
-    h("span", { class: "key muted" }, "Tempo gegen deine Bestzeit, volle Farbe ab ±12 km/h"));
+    h("span", { class: "key muted" }, "Tempo gegen die Bestzeit, volle Farbe ab ±12 km/h")]));
 }
 
 /* --- Darstellung ----------------------------------------------------------- */
@@ -381,6 +389,39 @@ window.addEventListener("resize", () => {
 });
 
 setInterval(() => { if (!document.hidden && location.hash !== "#live") pollLiveDot(); }, 10000);
+// Karte wächst beim Fahren: unvollständige Streckenform alle 20 s neu holen
+setInterval(() => {
+  if (document.hidden || location.hash !== "#live" || !live.combo) return;
+  if (!live.geo || (live.geo.coverage != null && live.geo.coverage < 0.97)) loadPb();
+}, 20000);
+
+/* --- Wer fährt? ------------------------------------------------------------- */
+async function renderDriverPick() {
+  const el = $("#lv-driver");
+  let names = state.drivers && state.drivers.length ? state.drivers : [];
+  if (!names.length) { try { names = (await getJSON("/api/drivers")).drivers.map((d) => d.name).filter(Boolean); state.drivers = names; } catch { /* egal */ } }
+  const me = live.me || state.me;
+  const others = names.filter((n) => n && n !== me);
+  el.replaceChildren(h("option", { value: "" }, me ? `Ich (${me})` : "Ich"), ...others.map((n) => h("option", { value: n }, n)), h("option", { value: "__neu__" }, "+ anderer Fahrer …"));
+  el.value = live.drvCurrent || "";
+  el.closest(".lv-driver").classList.toggle("guest", !!live.drvCurrent);
+}
+$("#lv-driver").addEventListener("change", async (e) => {
+  let name = e.target.value;
+  if (name === "__neu__") {
+    name = (window.prompt("Wer fährt gerade? Neue Runden werden diesem Namen zugeordnet.") || "").trim();
+    if (!name) { e.target.value = live.drvCurrent || ""; return; }
+  }
+  try {
+    const r = await fetch("/api/drivers/current", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ driver: name }) });
+    if (!r.ok) throw new Error(r.status);
+    const j = await r.json();
+    if (name && !state.drivers.includes(name)) state.drivers.push(name);
+    live.drvCurrent = j.current; live.driver = j.current || j.me; live.me = j.me;
+    renderDriverPick();
+    if (live.combo) { live.pb = null; loadPb(); loadLaps(); }
+  } catch (err) { alert(`Konnte Fahrer nicht setzen: ${err.message}`); renderDriverPick(); }
+});
 pollLiveDot();
 showTab();
 
