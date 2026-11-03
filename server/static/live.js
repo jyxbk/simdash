@@ -22,6 +22,7 @@ function showTab() {
   document.body.dataset.tab = tab;
   $("#overview-view").hidden = tab !== "overview";
   $("#analyse-view").hidden = tab !== "analyse";
+  $("#live-view").hidden = !isLive;
   $("#filters").hidden = isLive;
   for (const a of document.querySelectorAll(".tabs a")) {
     if (a.dataset.tab === tab) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");

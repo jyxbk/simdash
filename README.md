@@ -1,94 +1,127 @@
 # SimDash
 
-Self-hosted lap time tracker for sim racing. A small collector on your gaming PC
-reads every finished lap from the game's shared memory and sends it to a server
-in your home lab, which shows personal bests per game, track and car.
+Self-hosted lap times, telemetry and driving coach for sim racing.
 
-> **Beta.** The collector has been checked against the official shared-memory
-> documentation, but not yet against every game in real driving. Feedback welcome.
+A small collector on your gaming PC reads the game's shared memory and sends
+every finished lap to a server in your home lab. Each lap includes its full
+trace: time, speed, pedals, gear, steering and position every ~5 m. The web UI
+shows your personal bests, compares laps, coaches you corner by corner and
+mirrors the car live on a second screen or your phone.
 
-## Why
-
-Online sessions drop. When the server connection is lost right after your best
-lap, the time is gone. SimDash stores every lap locally on the PC first, then
-syncs it to the server – and if the game never reports the lap (e.g. disconnect
-at the line), it records the lap from the running timer and marks it *estimated*.
-
-## Supported games
-
-| Game | Source | Lap validity | Status |
-|---|---|---|---|
-| Assetto Corsa EVO | `Local\acevo_pmf_*` (Kunos SharedFileOut v1, 2026-04) | from game | beta |
-| iRacing | iRacing SDK memory map | derived: all four wheels off track = invalid; incidents per lap as note | beta |
-| Assetto Corsa Competizione | `Local\acpmf_*` (ACC shared memory v1.8.12) | from game | beta |
-| Assetto Corsa Rally | `Local\acpmf_*` (ACC layout) | unknown | experimental |
-| Assetto Corsa (2014) | `Local\acpmf_*` | not available | beta |
-
-ACC, AC and AC Rally share the mapping names; the collector tells them apart by
-the running process.
+![Overview with session report](docs/img/overview.png)
 
 ## Features
 
-- Personal best per game / track / layout / car (valid laps only), fastest lap overall
-- Recent laps grouped by session, with *invalid*, *estimated*, *out lap*, *in lap* and *PB* markers
-- Mobile-friendly web UI, read-only on the LAN; writes need a token
-- Collector uses only the Python standard library; offline queue with automatic resend
-- Full local log of every lap in `%LOCALAPPDATA%\SimDash\laps.csv`
+**Overview**
+- Personal best per game / track / layout / car, PB history, key figures
+- **Session report** for the latest session: best lap, consistency, change from
+  the previous session, the corner with the most time to gain, and your latest
+  setup note
+- Sessions grouped and collapsible, with *PB*, *invalid*, *estimated*, *out lap*
+  and *in lap* markers
+- **Drivers**: assign laps or whole sessions to friends. Their laps don't count
+  toward your bests, and they can be tracked separately
 
-## Architecture
+**Analysis & coach** ([how the coach works](docs/coach.md))
+- Corners are detected automatically from the speed trace
+- Your PB lap is compared with your **best own run through each corner** →
+  ideal lap, time potential, top 3 corners with concrete tips (*"brake ~18 m
+  later"*, *"carry 5 km/h more through the apex"*, *"full throttle 15 m
+  earlier"*), split into entry and exit loss
+- **Corner history**: corner time and braking point lap by lap, so you can see
+  whether a tip is working
+- **Progress**: best and median lap per session over time
+- **Setup & notes** per track/car
+- **Lap comparison**: track map coloured by speed difference (GPS-track style
+  with callouts), delta over the lap, 10 mini sectors, speed overlay
 
-```
-Gaming PC (Windows)                      Home lab (Linux / LXC)
-simdash_collector.py  ── HTTP POST ──▶   FastAPI + SQLite  ──▶  web UI :8080
-  reads shared memory                    /api/laps, /api/bests
-  laps.csv + queue.jsonl
-```
+**Live** (≈10 Hz over Server-Sent Events)
+- Live delta to your PB, predicted lap time, sector deltas, track map with trail
+- Speed, gear, rpm, pedals, steering, G-forces, last 20 s trace
+- Tyres (pressure, core and surface temperatures), brakes, assists (TC, ABS, brake
+  bias, engine map), engine and fuel range
+- Fits one 1080p screen and works on a phone (screen stays awake)
 
-## Server setup
+| Coach | Live |
+|---|---|
+| ![Coach](docs/img/coach.png) | ![Live](docs/img/live.png) |
 
-Any Debian/Ubuntu host or LXC with Python 3.11+ and root SSH access:
+**Robust collection**
+- Every lap is written locally first (`laps.csv` + queue) and resent when the
+  server is back, so a dropped connection never loses a PB
+- If the game never reports the lap (disconnect at the line), the time is taken
+  from the running timer and marked *estimated*
+- The collector uses only the Python standard library
+
+## Supported games
+
+| Game | Source | Lap validity | Trace / map | Live telemetry |
+|---|---|---|---|---|
+| Assetto Corsa EVO | `Local\acevo_pmf_*` | from game | ✓ / ✓ | full (tyres, brakes, assists, damage) |
+| Assetto Corsa Competizione | `Local\acpmf_*` | from game | ✓ / ✓ | full |
+| Assetto Corsa (2014) | `Local\acpmf_*` | not reported | ✓ / ✓ | physics block |
+| Assetto Corsa Rally | `Local\acpmf_*` (ACC layout) | unknown | ✓ / ✓ | experimental |
+| iRacing | iRacing SDK memory map | derived (4 wheels off / incident = invalid) | ✓ / – (no world position) | inputs, G, fuel, temperatures |
+
+AC EVO has been tested most in real driving. The others are implemented from
+the official documentation and tested less.
+
+## Quick start
 
 ```sh
+# Server: any Debian/Ubuntu host or LXC with Python 3.11+ and root SSH
 ./deploy/deploy.sh root@<server-ip>
 ```
 
-This installs the app to `/opt/simdash`, creates a `simdash` system user and a
-systemd service on port 8080, generates a write token in `/etc/simdash.env`, and
-builds a collector download package that is linked at the bottom of the web UI.
+Then open `http://<server-ip>:8080` and download the collector from the link at
+the bottom of the page. On the gaming PC:
 
-## Collector setup (Windows)
+1. Install Python 3.11+ (`winget install Python.Python.3.12`)
+2. Unpack the download to `C:\SimDash`, put the token from the server's
+   `/etc/simdash.env` into `simdash.ini`
+3. Put a shortcut `pyw -3 C:\SimDash\simdash_collector.py` into `shell:startup`
 
-1. Install Python 3.11+ (`winget install Python.Python.3.12`).
-2. Download the collector from the web UI and unpack it to `C:\SimDash`.
-3. Put the token from `/etc/simdash.env` into `simdash.ini`.
-4. Create shortcuts:
-   - test window: `py -3 C:\SimDash\simdash_collector.py --dump`
-   - background: `pyw -3 C:\SimDash\simdash_collector.py` (copy into `shell:startup` for autostart)
+Full instructions: **[docs/installation.md](docs/installation.md)**
 
-The collector has to run inside your logged-in desktop session – games publish
-their shared memory per session, so it cannot run as a Windows service or over SSH.
+## Documentation
 
-If **Smart App Control** is enabled, `.bat` files are blocked; shortcuts that start
-the signed Python launcher directly work fine.
+| | |
+|---|---|
+| [Installation](docs/installation.md) | Server, collector, autostart, updates, troubleshooting |
+| [User guide](docs/user-guide.md) | Overview, analysis, coach, live tab, drivers, notes |
+| [Coach](docs/coach.md) | How corners, potential and tips are calculated |
+| [Architecture](docs/architecture.md) | Data flow, collector internals, trace format, database |
+| [API](docs/api.md) | HTTP endpoints |
+| [Development](docs/development.md) | Local setup, tests, release |
+| [Changelog](CHANGELOG.md) | Versions |
 
-`--selftest` prints struct sizes and offsets, `--dump` shows the live values once per second.
+## Architecture in one picture
 
-## Development
-
-```sh
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt pytest httpx
-.venv/bin/python -m pytest
+```
+Gaming PC (Windows, desktop session)          Home lab (Linux / LXC)
+┌──────────────────────────────┐              ┌─────────────────────────────────┐
+│ simdash_collector.py (50 Hz) │  POST laps   │ FastAPI + SQLite  (:8080)       │
+│  shared memory → lap detector├─────────────▶│  /api/laps, /api/coach, …       │
+│  laps.csv + queue.jsonl      │  POST live   │  live state → SSE stream        │
+│  live sender (10 Hz)         ├─────────────▶│  static web UI (vanilla JS/SVG) │
+└──────────────────────────────┘              └───────────────┬─────────────────┘
+                                                              │ browser / phone
 ```
 
-The lap detector, struct layouts and the iRacing reader are covered by tests that
-run on Linux (wide strings are modelled as `uint16` arrays so offsets match Windows).
+## Security
+
+Reading is open on the LAN. The collector writes with a bearer token
+(`SIMDASH_TOKEN`). Edits from the UI (drivers, notes) are accepted from private
+and loopback addresses or with the token. SimDash is meant for a home network.
+Don't expose it to the internet without a reverse proxy and authentication.
 
 ## Credits
 
-- Struct layouts follow Kunos' official shared-memory documentation for AC EVO and ACC.
+- Struct layouts follow Kunos' official shared-memory documentation for AC EVO
+  and ACC and the iRacing SDK.
 - Offsets were cross-checked against the independent structs in
   [live-telemetry-evo](https://github.com/albertowd/live-telemetry-evo) (no code copied).
 
 ## License
 
-MIT
+[MIT](LICENSE)
