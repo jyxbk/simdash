@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "0.3.0b1"
+VERSION = "0.4.0b1"
 POLL_HZ = 50
 
 log = logging.getLogger("simdash")
@@ -414,6 +414,9 @@ class Snapshot:
     brake: float | None = None     # 0..1
     pos_x: float | None = None     # Weltkoordinaten des eigenen Autos (m), für die Streckenkarte
     pos_z: float | None = None
+    gear: int | None = None        # -1 = R, 0 = N, 1.. = Gang
+    rpm: int | None = None
+    rpm_pct: float | None = None   # 0..1 bis Begrenzer (nur AC EVO)
 
 
 TRACE_STEP = 0.005   # Verlauf alle 0,5 % der Runde (200 Punkte)
@@ -718,6 +721,18 @@ class NamedMapping:
 # Spiele
 # ---------------------------------------------------------------------------
 
+def clamp01(v) -> float | None:
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    if v != v:
+        return None
+    if v > 1.5:          # manche Felder kommen als 0..100
+        v /= 100
+    return max(0.0, min(1.0, v))
+
+
 def coords(arr, idx: int) -> dict:
     """x/z (Draufsicht, y ist oben) aus einem flachen [x, y, z]*n-Feld; 0/0 = keine Daten."""
     try:
@@ -762,6 +777,10 @@ class AcEvoSource(GameSource):
     static_name = "Local\\acevo_pmf_static"
     static_type = EvoStatic
 
+    def __init__(self):
+        super().__init__()
+        self.ph = NamedMapping("Local\\acevo_pmf_physics")
+
     def snapshot(self) -> Snapshot:
         self.refresh_static()
         g, st = self.g.read(EvoGraphics), self.static
@@ -778,7 +797,24 @@ class AcEvoSource(GameSource):
             session_id=f"{st.event_id}:{st.session_id}",
             speed_kmh=float(g.display_speed_kmh), throttle=g.gas_percent, brake=g.brake_percent,
             **coords(g.car_coordinates, self.player_index(g)),
+            gear=self.gear(), rpm=int(g.rpm), rpm_pct=clamp01(g.rpm_percent),
         )
+
+    def gear(self) -> int | None:
+        """Gang aus dem Physik-Block (@16, int32: 0 = R, 1 = N, 2 = 1. Gang – wie AC/ACC,
+        so auch live-telemetry-evo). gear_int im Grafik-Block ist undokumentiert."""
+        import struct
+        try:
+            if not self.ph.open():
+                return None
+            (g,) = struct.unpack_from("<i", self.ph.read_bytes(16, 4), 0)
+        except (OSError, ValueError):
+            return None
+        return g - 1 if -1 <= g <= 12 else None
+
+    def close(self) -> None:
+        super().close()
+        self.ph.close()
 
     def player_index(self, g) -> int:
         """Platz des eigenen Autos in car_coordinates: car_ids enthält je Auto (id_a, id_b)."""
@@ -843,7 +879,7 @@ class AcFamilySource(GameSource):
             valid, pit, session_id = None, bool(g.isInPitLane), ""
             sessions = AC1_SESSIONS
         driver = f"{wstr(st.playerName)} {wstr(st.playerSurname)}".strip()
-        kmh, gas, brk = self.pedals()
+        kmh, gas, brk, gear, rpm = self.pedals()
         return Snapshot(
             game=game, status=g.status, packet_id=g.packetId,
             lap_count=g.completedLaps, current_ms=g.iCurrentTime,
@@ -855,7 +891,7 @@ class AcFamilySource(GameSource):
             session_type=sessions.get(g.session, str(g.session)),
             driver=driver, online=bool(st.isOnline) if game == "acc" else None,
             session_id=session_id,
-            speed_kmh=kmh, throttle=gas, brake=brk, **pos,
+            speed_kmh=kmh, throttle=gas, brake=brk, **pos, gear=gear, rpm=rpm,
         )
 
     def info(self) -> dict:
@@ -867,17 +903,19 @@ class AcFamilySource(GameSource):
         self.ph.close()
 
     def pedals(self) -> tuple:
-        """SPageFilePhysics: gas @4, brake @8, speedKmh @28 (AC1, ACC, AC Rally gleich)."""
+        """SPageFilePhysics: gas @4, brake @8, gear @16 (0 = R, 1 = N), rpms @20, speedKmh @28
+        (AC1, ACC, AC Rally gleich)."""
         import struct
         try:
             if not self.ph.open():
-                return None, None, None
+                return None, None, None, None, None
             raw = self.ph.read_bytes(0, 32)
         except (OSError, ValueError):
-            return None, None, None
+            return None, None, None, None, None
         gas, brake = struct.unpack_from("<ff", raw, 4)
+        gear, rpm = struct.unpack_from("<ii", raw, 16)
         (kmh,) = struct.unpack_from("<f", raw, 28)
-        return kmh, gas, brake
+        return kmh, gas, brake, gear - 1, rpm
 
 
 # --- iRacing -----------------------------------------------------------------
@@ -944,7 +982,8 @@ class IRacingSource(GameSource):
     settle_s = 3.0
     VARS = ("SessionNum", "IsOnTrack", "IsReplayPlaying", "LapCompleted", "LapLastLapTime",
             "LapBestLapTime", "LapCurrentLapTime", "LapDistPct", "OnPitRoad",
-            "PlayerTrackSurface", "PlayerCarMyIncidentCount", "Speed", "Throttle", "Brake")
+            "PlayerTrackSurface", "PlayerCarMyIncidentCount", "Speed", "Throttle", "Brake",
+            "Gear", "RPM")
 
     def __init__(self):
         self.m = NamedMapping("Local\\IRSDKMemMapFileName")
@@ -1022,6 +1061,7 @@ class IRacingSource(GameSource):
             session_id=f"{si.get('subsession', '')}:{num}",
             incidents=v("PlayerCarMyIncidentCount"),
             speed_kmh=v("Speed", 0.0) * 3.6, throttle=v("Throttle", None), brake=v("Brake", None),
+            gear=v("Gear", None), rpm=int(v("RPM", 0.0)),
         )
 
     def info(self) -> dict:
@@ -1133,6 +1173,81 @@ class Sender(threading.Thread):
             self.online = False
 
 
+class LiveSender(threading.Thread):
+    """Schickt den aktuellen Zustand (max. `hz` mal pro Sekunde) an /api/live.
+
+    Nur der jeweils neueste Stand zählt: Ist der Server langsam, wird nichts gepuffert.
+    """
+
+    def __init__(self, server: str, token: str, hz: float = 10.0):
+        super().__init__(daemon=True)
+        self.url, self.token = server.rstrip("/") + "/api/live", token
+        self.period = 1.0 / max(1.0, min(30.0, hz))
+        self.latest: dict | None = None
+        self.sent_seq = -1
+        self.seq = 0
+        self.lock = threading.Lock()
+        self.ok = None
+
+    def put(self, data: dict) -> None:
+        with self.lock:
+            self.seq += 1
+            self.latest = dict(data, seq=self.seq)
+
+    def run(self) -> None:
+        import http.client
+        from urllib.parse import urlsplit
+        u = urlsplit(self.url)
+        conn = None
+        last_idle = 0.0
+        while True:
+            t0 = time.monotonic()
+            with self.lock:
+                data = self.latest if self.latest and self.latest["seq"] != self.sent_seq else None
+            # Ohne neue Daten nur alle 5 s ein Lebenszeichen
+            if data is None and self.latest is not None and t0 - last_idle > 5:
+                data = dict(self.latest)
+            if data is not None:
+                try:
+                    if conn is None:
+                        conn = http.client.HTTPConnection(u.hostname, u.port or 80, timeout=2)
+                    conn.request("POST", u.path, body=json.dumps(data, separators=(",", ":")),
+                                 headers={"Content-Type": "application/json",
+                                          "Authorization": f"Bearer {self.token}"})
+                    r = conn.getresponse()
+                    r.read()
+                    if r.status >= 400 and self.ok is not False:
+                        log.warning("Live-Daten abgelehnt (%s)", r.status)
+                        self.ok = False
+                    elif r.status < 400:
+                        self.ok = True
+                    self.sent_seq, last_idle = data["seq"], t0
+                except (OSError, http.client.HTTPException):
+                    if conn is not None:
+                        conn.close()
+                    conn = None
+                    self.ok = False
+                    time.sleep(2)
+                    continue
+            time.sleep(max(0.0, self.period - (time.monotonic() - t0)))
+
+
+def live_payload(snap: Snapshot | None, det: "LapDetector", status: str) -> dict:
+    if snap is None:
+        return {"state": status, "version": VERSION}
+    d = {k: getattr(snap, k) for k in (
+        "game", "status", "lap_count", "current_ms", "last_ms", "best_ms", "valid_now", "npos",
+        "in_pit_lane", "track", "layout", "car", "session_type", "driver", "online", "speed_kmh",
+        "throttle", "brake", "pos_x", "pos_z", "gear", "rpm", "rpm_pct", "incidents")}
+    d.update(state=status, version=VERSION, session_uid=det.session_uid,
+             lap_invalid=det.lap_invalid, lap_outlap=det.lap_started_in_pit,
+             paused=snap.status in (STATUS_PAUSE, STATUS_REPLAY))
+    for k in ("npos", "speed_kmh", "throttle", "brake", "pos_x", "pos_z", "rpm_pct"):
+        if isinstance(d[k], float):
+            d[k] = round(d[k], 4 if k == "npos" else 2)
+    return d
+
+
 # ---------------------------------------------------------------------------
 # Hauptprogramm
 # ---------------------------------------------------------------------------
@@ -1200,6 +1315,10 @@ def main() -> None:
     sender = Sender(store, cfg["server"]["url"], cfg["server"]["token"])
     sender.start()
     sender.wake.set()
+    live = None
+    if cfg.getboolean("live", "enabled", fallback=True):
+        live = LiveSender(cfg["server"]["url"], cfg["server"]["token"], cfg.getfloat("live", "hz", fallback=10))
+        live.start()
 
     sources = [AcEvoSource(), IRacingSource(), AcFamilySource(processes)]
     detector = LapDetector()
@@ -1234,6 +1353,8 @@ def main() -> None:
                         break
                 if active is None:
                     announced = None      # kein Spiel mehr da -> nächstes Mal wieder melden
+                    if live:
+                        live.put(live_payload(None, detector, "no_game"))
                     time.sleep(2)
                     continue
 
@@ -1251,9 +1372,14 @@ def main() -> None:
                 active.close()
                 active = None
                 detector = LapDetector()
+                if live:
+                    live.put(live_payload(None, detector, "no_game"))
                 continue
 
             finish(detector.update(snap))
+            if live:
+                live.put(live_payload(snap, detector, {STATUS_LIVE: "live", STATUS_PAUSE: "paused",
+                                                       STATUS_REPLAY: "paused"}.get(snap.status, "menu")))
 
             if args.dump and time.monotonic() - last_dump > 1:
                 last_dump = time.monotonic()
@@ -1261,6 +1387,7 @@ def main() -> None:
                       f"last={fmt_ms(max(snap.last_ms, 0))} best={fmt_ms(max(snap.best_ms, 0))} "
                       f"valid={snap.valid_now} npos={snap.npos:.3f} pit={snap.in_pit_lane} "
                       f"pos={snap.pos_x and round(snap.pos_x, 1)}/{snap.pos_z and round(snap.pos_z, 1)} "
+                      f"gear={snap.gear} rpm={snap.rpm} rpm%={snap.rpm_pct} "
                       f"| {snap.track}/{snap.layout} {snap.car} {snap.session_type} online={snap.online}")
             time.sleep(1 / POLL_HZ)
         except KeyboardInterrupt:

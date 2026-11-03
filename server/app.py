@@ -5,17 +5,20 @@ Lesen ist im LAN offen, Schreiben braucht den Token aus SIMDASH_TOKEN.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import secrets
 import sqlite3
+import time
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi import Request
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -141,6 +144,54 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="SimDash", lifespan=lifespan)
+
+
+# ---------------------------------------------------------------------------
+# Live: der Collector schickt ~10x/s den aktuellen Zustand, die Oberfläche liest per SSE.
+# Nur im Speicher – nach einem Neustart ist einfach nichts live, bis neue Daten kommen.
+# ---------------------------------------------------------------------------
+LIVE: dict = {"data": None, "at": 0.0, "seq": 0}
+LIVE_MAX_BYTES = 4096
+
+
+def live_view() -> dict:
+    age = time.time() - LIVE["at"] if LIVE["at"] else None
+    return {"data": LIVE["data"], "age_s": None if age is None else round(age, 2), "seq": LIVE["seq"]}
+
+
+@app.post("/api/live", dependencies=[Depends(require_token)])
+async def post_live(request: Request) -> dict:
+    body = await request.body()
+    if len(body) > LIVE_MAX_BYTES:
+        raise HTTPException(413, "zu groß")
+    try:
+        data = json.loads(body)
+    except ValueError:
+        raise HTTPException(400, "kein JSON")
+    if not isinstance(data, dict):
+        raise HTTPException(400, "Objekt erwartet")
+    LIVE.update(data=data, at=time.time(), seq=LIVE["seq"] + 1)
+    return {"ok": True}
+
+
+@app.get("/api/live")
+def get_live() -> dict:
+    return live_view()
+
+
+@app.get("/api/live/stream")
+async def live_stream(request: Request) -> StreamingResponse:
+    async def gen():
+        last, beat = -1, 0.0
+        yield "retry: 2000\n\n"
+        while not await request.is_disconnected():
+            now = time.monotonic()
+            if LIVE["seq"] != last or now - beat > 2:
+                last, beat = LIVE["seq"], now
+                yield f"data: {json.dumps(live_view(), separators=(',', ':'))}\n\n"
+            await asyncio.sleep(0.05)
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.get("/api/health")

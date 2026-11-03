@@ -479,8 +479,8 @@ window.addEventListener("resize", () => {
 });
 
 load();
-setInterval(() => { if (!document.hidden && $("#tooltip").hidden) load(); }, 15000);
-document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+setInterval(() => { if (!document.hidden && $("#tooltip").hidden && location.hash !== "#live") load(); }, 15000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden && location.hash !== "#live") load(); });
 
 // ---------------------------------------------------------------------------
 // Analyse: wo Zeit gewonnen/verloren wird (braucht Runden mit Verlauf, Collector ≥ 0.2)

@@ -108,3 +108,13 @@ def test_trace_roundtrip(client):
     lap_id = laps["aaaaaaaa1"]["id"]
     assert client.delete(f"/api/laps/{lap_id}", headers=AUTH).status_code == 200
     assert client.get("/api/traces", params={"game": "acevo", "track": "road_atlanta", "car": "bmw_m4_gt3"}).json() == []
+
+
+def test_live_roundtrip(client):
+    assert client.get("/api/live").json()["data"] is None
+    assert client.post("/api/live", json={"state": "live"}).status_code == 401
+    r = client.post("/api/live", headers=AUTH, json={"state": "live", "npos": 0.5, "current_ms": 12000})
+    assert r.status_code == 200
+    got = client.get("/api/live").json()
+    assert got["data"]["npos"] == 0.5 and got["age_s"] < 5 and got["seq"] >= 1
+    assert client.post("/api/live", headers=AUTH, content="x" * 5000).status_code == 413
