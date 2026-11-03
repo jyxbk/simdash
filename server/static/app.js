@@ -253,7 +253,8 @@ function renderSessions(laps, bests) {
   const sessions = groupSessions(laps);
   if (!sessions.length) { box.replaceChildren(); return; }
   const shown = sessions.slice(0, state.sessionsShown);
-  box.replaceChildren(...shown.map((ls) => {
+  state.openSessions = state.openSessions || new Set();
+  box.replaceChildren(...shown.map((ls, idx) => {
     const first = ls[0], last = ls[ls.length - 1];
     const pb = pbByCombo.get(comboKey(first));
     const counting = ls.filter(isCounting);
@@ -265,8 +266,10 @@ function renderSessions(laps, bests) {
         pb && isCounting(l) ? (l.id === pb.id ? "" : fmtDelta(l.lap_time_ms - pb.lap_time_ms)) : ""),
       h("td", {}, lapBadges(l, pb && pb.id), l.note ? h("span", { class: "note" }, ` ${l.note}`) : null),
     ));
-    return h("article", { class: "session" },
-      h("div", { class: "session-head" },
+    const sk = first.session_uid || comboKey(first) + first.recorded_at;
+    const open = state.openSessions.has(sk) || (idx === 0 && !state.openSessions.has(`closed:${sk}`));
+    const det = h("details", { class: "session", open: open || null },
+      h("summary", { class: "session-head" },
         h("div", {},
           h("div", { class: "what" }, trackName(first), " ", h("span", { class: "car" }, `· ${pretty(first.car)}`)),
           h("div", { class: "info" },
@@ -274,7 +277,7 @@ function renderSessions(laps, bests) {
         h("div", { class: "session-side" },
           h("div", { class: "session-best" }, "Beste Runde ", h("b", {}, sBest ? fmt(sBest) : "–")),
           h("button", { class: "driver-btn", type: "button", title: "Fahrer dieser Session ändern",
-            onclick: () => openDriverDialog(ls, `Wer ist diese Session gefahren? · ${trackName(first)}`) },
+            onclick: (e) => { e.preventDefault(); e.stopPropagation(); openDriverDialog(ls, `Wer ist diese Session gefahren? · ${trackName(first)}`); } },
             "✎ ", first.driver && first.driver !== state.me ? first.driver : "Ich"))),
       h("table", {},
         h("thead", {}, h("tr", {},
@@ -282,6 +285,11 @@ function renderSessions(laps, bests) {
           h("th", { class: "num dcol hide-sm" }, "zur PB"), h("th", {}, ""))),
         h("tbody", {}, rows)),
     );
+    det.addEventListener("toggle", () => {
+      if (det.open) { state.openSessions.add(sk); state.openSessions.delete(`closed:${sk}`); }
+      else { state.openSessions.delete(sk); state.openSessions.add(`closed:${sk}`); }
+    });
+    return det;
   }));
   if (sessions.length > shown.length) {
     box.append(h("button", {

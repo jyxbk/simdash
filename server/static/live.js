@@ -15,6 +15,7 @@ const LIVE_STALE_S = 4;
 /* --- Tabs ------------------------------------------------------------------ */
 function showTab() {
   const isLive = location.hash === "#live";
+  document.body.classList.toggle("is-live", isLive);
   $("#overview-view").hidden = isLive;
   $("#live-view").hidden = !isLive;
   for (const a of document.querySelectorAll(".tabs a")) {
@@ -272,14 +273,14 @@ function render() {
   }
   $("#lv-pred").textContent = delta != null && pb ? `Prognose ${fmt(Math.round(pb.lap_time_ms + delta))}` : pb ? "" : "Noch keine gültige Runde mit Verlauf für diese Kombination.";
 
-  renderTiles(d);
+  renderLiveTiles(d);
   renderInputs(d);
   renderSectors(d);
   renderPosition(d);
   renderTele(d);
 }
 
-function renderTiles(d) {
+function renderLiveTiles(d) {
   const pb = live.pb;
   const sess = live.laps.filter((l) => l.session_uid && l.session_uid === d.session_uid);
   const sessBest = sess.filter(isCounting).sort((a, b) => a.lap_time_ms - b.lap_time_ms)[0];
@@ -289,7 +290,7 @@ function renderTiles(d) {
     tile("Letzte Runde", last ? fmt(last) : "–", last && pb ? `${fmtDelta(last - pb.lap_time_ms)} s zur Bestzeit` : ""),
     tile("Beste dieser Session", sessBest ? fmt(sessBest.lap_time_ms) : "–", sessBest ? `Runde ${sessBest.lap_number ?? "?"} · ${sess.length} Runden` : `${sess.length} Runden`),
     tile("Bestzeit", pb ? fmt(pb.lap_time_ms) : "–", pb ? `gefahren ${fmtDate(pb.recorded_at)}` : "noch keine gültige"),
-    tile("Bestzeit im Spiel", d.best_ms > 0 ? fmt(d.best_ms) : "–", "laut Spiel, diese Session"),
+    tile("Bestzeit im Spiel", d.best_ms > 0 ? fmt(d.best_ms) : "–", "diese Session"),
   );
 }
 
@@ -557,7 +558,7 @@ function renderG(t) {
   const lat = g[0], lon = g[1];
   $("#lv-g-vals").replaceChildren(
     h("div", {}, h("span", {}, "quer"), h("b", {}, `${num(Math.abs(lat), 2)} G`)),
-    h("div", {}, h("span", {}, lon < 0 ? "bremsen" : "beschleunigen"), h("b", {}, `${num(Math.abs(lon), 2)} G`)));
+    h("div", {}, h("span", {}, lon < 0 ? "bremsen" : "Gas"), h("b", {}, `${num(Math.abs(lon), 2)} G`)));
 }
 
 function kv(label, value, extra, led) {
@@ -576,8 +577,17 @@ function held(key, on) {
 }
 
 function renderAssist(t) {
+  // Lenkung (in der Eingaben-Karte) unabhängig von den Fahrhilfen
+  const st = t.steer, bar = $("#lv-steer");
+  if (st == null) { bar.style.width = "0"; $("#lv-steer-txt").textContent = "–"; }
+  else {
+    const f = Math.min(1, Math.abs(st)) * 50;
+    Object.assign(bar.style, { width: `${f}%`, left: st >= 0 ? "50%" : `${50 - f}%` });
+    const deg = t.steer_deg != null ? t.steer_deg : Math.round(st * 100);
+    $("#lv-steer-txt").textContent = `${deg < 0 ? "◀ " : deg > 0 ? "" : ""}${Math.abs(deg)}${t.steer_deg != null ? "°" : " %"}${deg > 0 ? " ▶" : ""}`;
+  }
   const card = $("#lv-assist-card");
-  const has = t.tc_lvl != null || t.abs_lvl != null || t.bb != null || t.steer != null;
+  const has = t.tc_lvl != null || t.abs_lvl != null || t.bb != null || t.abs_on != null;
   card.hidden = !has;
   if (!has) return;
   const items = [];
@@ -585,16 +595,10 @@ function renderAssist(t) {
   if (t.tc_lvl != null) items.push(kv("TC", `${t.tc_lvl}${t.tc_cut ? ` · Cut ${t.tc_cut}` : ""}`, "", tcOn));
   if (t.abs_lvl != null) items.push(kv("ABS", String(t.abs_lvl), "", absOn));
   else if (t.abs_on != null) items.push(kv("ABS", absOn ? "greift" : "–", "", absOn));
-  if (t.bb != null) items.push(kv("Bremsbalance", `${num(t.bb * 100, 1)} % vorn`));
+  if (t.bb != null) items.push(kv("Bremsbalance", `${num(t.bb * 100, 1)} %`));
   if (t.map != null) items.push(kv("Motor-Map", String(t.map)));
   if (t.pit_lim) items.push(kv("Pit-Limiter", "an", "", true));
   $("#lv-assist").replaceChildren(...items);
-  const st = t.steer;
-  const bar = $("#lv-steer");
-  if (st == null) { bar.style.width = "0"; $("#lv-steer-txt").textContent = ""; return; }
-  const f = Math.min(1, Math.abs(st)) * 50;
-  Object.assign(bar.style, { width: `${f}%`, left: st >= 0 ? "50%" : `${50 - f}%` });
-  $("#lv-steer-txt").textContent = t.steer_deg != null ? `Lenkung ${t.steer_deg > 0 ? "rechts" : t.steer_deg < 0 ? "links" : "gerade"} ${Math.abs(t.steer_deg)}°` : `Lenkung ${Math.round(st * 100)} %`;
 }
 
 /** Zeilen, die einmal Werte hatten, bleiben stehen (sonst springt die Liste beim Gaswegnehmen). */

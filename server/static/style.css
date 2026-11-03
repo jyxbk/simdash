@@ -555,3 +555,180 @@ footer a { color: var(--series-1); text-decoration: none; }
 .dd-actions button { font: inherit; border-radius: 8px; padding: .45rem .95rem; cursor: pointer; border: 1px solid var(--border); }
 .dd-actions .primary { background: var(--text-primary); color: var(--page); border-color: var(--text-primary); font-weight: 650; }
 .dd-actions .ghost { background: transparent; color: var(--text-secondary); }
+
+/* ===========================================================================
+   Kompaktes Live-Layout (v0.7): am PC alles auf einen Bildschirm, am Handy kurz
+   =========================================================================== */
+.live { max-width: 1880px; padding: .25rem 1rem 1rem; gap: .5rem; }
+.live-head { align-items: center; }
+.live-head-l { display: flex; align-items: baseline; flex-wrap: wrap; gap: .2rem .8rem; min-width: 0; }
+.live-what { font-size: 1.1rem; margin: 0; }
+.live-sub { font-size: .8rem; }
+.lv-card { padding: .6rem .75rem; border-radius: 12px; }
+.card-head { display: flex; justify-content: space-between; align-items: baseline; gap: .2rem .8rem; flex-wrap: wrap; }
+.card-head .legend { margin: 0; font-size: .74rem; gap: .7rem; }
+.lv-card .subchart-title { margin: 0 0 .25rem; font-size: .72rem; }
+
+.lv-grid { display: grid; gap: .5rem; grid-template-columns: 1.3fr 1.2fr 1fr;
+  grid-template-areas:
+    "clock   delta   tiles"
+    "map     trace   inputs"
+    "map     sectors inputs"
+    "tyres   laps    vehicle"; }
+.a-clock { grid-area: clock; } .a-delta { grid-area: delta; } .a-tiles { grid-area: tiles; }
+.a-map { grid-area: map; display: flex; flex-direction: column; } .a-trace { grid-area: trace; }
+.a-sectors { grid-area: sectors; } .a-inputs { grid-area: inputs; } .a-tyres { grid-area: tyres; }
+.a-vehicle { grid-area: vehicle; } .a-laps { grid-area: laps; }
+.lv-grid > [hidden] { display: none !important; }
+
+/* Uhr & Delta */
+.lv-time { font-size: clamp(2.2rem, 4.2vw, 3.8rem); margin: 0 0 .2rem; }
+.lv-delta-val { font-size: clamp(2rem, 3.8vw, 3.4rem); }
+.lv-delta-row { margin: 0 0 .3rem; }
+.lv-pred { margin-top: .3rem; font-size: .82rem; }
+.lv-flags { min-height: 1.3rem; }
+.flag { font-size: .72rem; padding: .05rem .45rem; }
+
+/* Kacheln 2×2 */
+.lv-tiles { grid-template-columns: 1fr 1fr; gap: .4rem; }
+.lv-tiles .insight { padding: .35rem .55rem; border-radius: 9px; }
+.lv-tiles .insight .label { font-size: .68rem; }
+.lv-tiles .insight .value { font-size: 1.05rem; margin: 0; }
+.lv-tiles .insight .sub { font-size: .68rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Karte füllt ihre Zeilen */
+.lv-map { flex: 1 1 auto; height: auto; min-height: 300px; }
+.lv-progress { margin-top: .35rem; }
+
+/* Verlauf */
+.lv-trace-box { height: 96px; margin-top: .15rem; }
+.lv-trace-box.small { height: 64px; }
+
+/* Abschnitte: eine Zeile mit 10 */
+.lv-sectors { grid-template-columns: repeat(10, 1fr); gap: 3px; margin: .2rem 0 0; }
+.lv-sectors .sec { min-height: 2.5rem; padding: .2rem .1rem; border-radius: 5px; }
+.lv-sectors .v { font-size: .78rem; }
+.lv-sectors .n { font-size: .62rem; }
+
+/* Eingaben + G-Kreis nebeneinander */
+.lv-inputs-card { display: grid; grid-template-columns: 1fr auto; gap: .6rem; align-items: start; }
+.lv-inputs { gap: .25rem .6rem; }
+.lv-speed span, .lv-gear span { font-size: 2.2rem; }
+.lv-pedal { grid-template-columns: 3.6rem 1fr 3.2rem; font-size: .76rem; gap: .4rem; }
+.lv-pbar { height: 10px; }
+.lv-pedal .lv-steer { margin: 0; height: 10px; }
+.steer-txt { font-size: .74rem; white-space: nowrap; }
+.lv-gbox { width: 130px; }
+.lv-gbox[hidden] { display: none; }
+.lv-g { max-width: 130px; margin: 0; }
+.lv-g-vals { gap: .2rem; margin-top: .15rem; }
+.lv-g-vals span { font-size: .64rem; }
+.lv-g-vals b { font-size: .85rem; }
+
+/* Reifen: vier nebeneinander */
+.lv-tyres { grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: .2rem; }
+.tyre { padding: .3rem .4rem .35rem; border-radius: 8px; border-top-width: 3px; }
+.tyre .temp { font-size: 1.25rem; }
+.tyre .faces { margin: .15rem 0 .2rem; }
+.tyre .faces span { height: 5px; }
+.tyre .row { font-size: .68rem; }
+.tyre .lockb { font-size: .6rem; }
+
+/* Fahrhilfen + Motor in einer Karte, Werte zweispaltig */
+.lv-vehicle { display: grid; gap: .45rem; align-content: start; }
+.lv-vehicle section[hidden] { display: none; }
+.lv-vehicle:not(:has(> section:not([hidden]))) { display: none; }
+.lv-kv { grid-template-columns: 1fr 1fr; gap: 3px; margin-top: 0; }
+.kv { padding: .22rem .45rem; font-size: .78rem; border-radius: 6px; }
+
+/* Session-Runden: scrollt in sich */
+.lv-laps { max-height: 210px; overflow: auto; }
+.lv-table { font-size: .82rem; margin-top: 0; }
+.lv-table th { position: sticky; top: 0; background: var(--surface-1); padding: .2rem .45rem; }
+.lv-table td { padding: .25rem .45rem; }
+.lv-table .badge { font-size: .66rem; }
+
+/* Tablet: zwei Spalten */
+@media (max-width: 1279px) {
+  .lv-grid { grid-template-columns: 1fr 1fr;
+    grid-template-areas: "clock delta" "tiles tiles" "map inputs" "map sectors" "trace trace" "tyres vehicle" "laps laps"; }
+  .lv-tiles { grid-template-columns: repeat(4, 1fr); }
+  .lv-map { min-height: 280px; }
+}
+
+/* Handy: eine Spalte, aber Uhr/Delta und Kacheln nebeneinander */
+@media (max-width: 760px) {
+  .live { padding: 0 .5rem .75rem; gap: .4rem; }
+  .live-head { flex-wrap: wrap; gap: .3rem; }
+  .live-sub { display: none; }
+  .lv-grid { gap: .4rem; grid-template-columns: 1fr 1fr;
+    grid-template-areas: "clock delta" "tiles tiles" "inputs inputs" "map map" "sectors sectors" "tyres tyres" "vehicle vehicle" "trace trace" "laps laps"; }
+  .lv-card { padding: .5rem .55rem; }
+  .lv-time { font-size: 1.9rem; }
+  .lv-delta-val { font-size: 1.8rem; }
+  .lv-delta-mark { font-size: 1rem; width: 1rem; }
+  .lv-label { font-size: .66rem; }
+  .lv-pred { font-size: .74rem; }
+  .lv-tiles { grid-template-columns: repeat(4, 1fr); gap: .3rem; }
+  .lv-tiles .insight { padding: .3rem .4rem; }
+  .lv-tiles .insight .value { font-size: .84rem; }
+  .lv-tiles .insight .label { font-size: .6rem; }
+  .lv-tiles .insight .sub { display: none; }
+  .lv-map { min-height: 230px; }
+  .lv-speed span, .lv-gear span { font-size: 1.8rem; }
+  .lv-gbox, .lv-g { width: 104px; max-width: 104px; }
+  .lv-sectors .sec { min-height: 2.1rem; }
+  .lv-sectors .v { font-size: .66rem; }
+  .lv-tyres { gap: 4px; }
+  .tyre .temp { font-size: 1.05rem; }
+  .tyre .row span { display: none; }
+  .tyre .row { justify-content: flex-end; }
+  .lv-trace-box { height: 80px; } .lv-trace-box.small { height: 54px; }
+  .lv-laps { max-height: 180px; }
+  .card-head .legend .key.muted { display: none; }
+}
+
+/* ===========================================================================
+   Kompakte Übersicht (v0.7)
+   =========================================================================== */
+.topbar, .filters, main, footer { max-width: 1600px; }
+body.is-live .topbar { max-width: 1880px; padding-top: .5rem; padding-bottom: .25rem; }
+.topbar { padding-top: .6rem; padding-bottom: .3rem; }
+.filters { padding-top: .4rem; padding-bottom: .4rem; }
+main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); column-gap: .75rem; align-items: stretch; }
+main > * { grid-column: 1 / -1; }
+.hero { grid-column: 1; padding: .9rem 1.1rem .85rem; margin-top: .5rem; }
+.hero .value { font-size: clamp(2.4rem, 6vw, 3.2rem); margin: .15rem 0 .15rem; }
+.hero .delta { margin-top: .35rem; }
+#tiles { grid-column: 2; grid-template-columns: 1fr 1fr; gap: .5rem; margin-top: .5rem; }
+#tiles .tile { padding: .55rem .75rem; }
+.section-head { margin: 1rem 0 .45rem; }
+.cards { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: .5rem; }
+.card { padding: .7rem .85rem; }
+
+#sessions { display: grid; grid-template-columns: 1fr; gap: .5rem; align-items: start; }
+@media (min-width: 1280px) { #sessions { grid-template-columns: 1fr 1fr; } #sessions > .more { grid-column: 1 / -1; } }
+details.session { margin: 0; }
+details.session > summary { list-style: none; cursor: pointer; padding: .55rem .9rem; }
+details.session > summary::-webkit-details-marker { display: none; }
+details.session > summary .what::before { content: "▸"; display: inline-block; width: 1rem; color: var(--text-muted); transition: transform .15s; }
+details.session[open] > summary .what::before { transform: rotate(90deg); }
+details.session:not([open]) > summary { border-bottom: 0; }
+.session-side { flex-direction: row; align-items: center; gap: .6rem; }
+.session td, .session th { padding-top: .3rem; padding-bottom: .3rem; }
+.session td { font-size: .88rem; }
+
+@media (max-width: 899px) {
+  .hero, #tiles { grid-column: 1 / -1; }
+  #tiles { grid-template-columns: repeat(4, 1fr); }
+}
+@media (max-width: 600px) {
+  #tiles { grid-template-columns: repeat(2, 1fr); }
+  .hero .value { font-size: 2.4rem; }
+  .session-side { flex-direction: column; align-items: flex-end; gap: .25rem; }
+}
+/* Handy: G-Werte untereinander, damit nichts überläuft */
+@media (max-width: 760px) {
+  .lv-g-vals { grid-template-columns: 1fr; }
+  .lv-g-vals div { flex-direction: row; justify-content: space-between; }
+}

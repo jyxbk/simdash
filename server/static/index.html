@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>SimDash</title>
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/style.css?v=0.6">
+  <link rel="stylesheet" href="/static/style.css?v=0.7.2">
 </head>
 <body class="viz-root" data-palette="#3987e5">
   <header class="topbar">
@@ -88,94 +88,77 @@
 
   <main id="live-view" class="live" hidden aria-label="Live">
     <div class="live-head">
-      <div>
+      <div class="live-head-l">
         <div class="live-state" id="lv-state" aria-live="polite"></div>
         <div class="live-what" id="lv-what"></div>
-      </div>
-      <div class="live-right">
-        <label class="lv-driver">Es fährt
-          <select id="lv-driver" aria-label="Wer fährt gerade?"></select>
-        </label>
         <div class="live-sub" id="lv-sub"></div>
       </div>
+      <label class="lv-driver">Es fährt
+        <select id="lv-driver" aria-label="Wer fährt gerade?"></select>
+      </label>
     </div>
 
-    <div class="live-hero">
-      <div class="lv-card lv-clock">
+    <div class="lv-grid">
+      <div class="lv-card lv-clock a-clock">
         <div class="lv-label" id="lv-lapno">Aktuelle Runde</div>
         <div class="lv-time" id="lv-time">–</div>
         <div class="lv-flags" id="lv-flags"></div>
       </div>
-      <div class="lv-card lv-delta">
+      <div class="lv-card lv-delta a-delta">
         <div class="lv-label" id="lv-delta-label">Abstand zur Bestzeit</div>
         <div class="lv-delta-row"><span class="lv-delta-mark" id="lv-delta-mark"></span><span class="lv-delta-val" id="lv-delta">–</span></div>
         <div class="lv-bar" aria-hidden="true"><div class="lv-bar-zero"></div><div class="lv-bar-fill" id="lv-delta-bar"></div></div>
         <div class="lv-pred" id="lv-pred"></div>
       </div>
-    </div>
+      <div class="lv-tiles a-tiles" id="lv-tiles"></div>
 
-    <div class="lv-tiles" id="lv-tiles"></div>
-
-    <div class="live-grid">
-      <div class="lv-card lv-mapcard">
-        <div class="subchart-title">Strecke</div>
-        <div class="legend" id="lv-map-legend"></div>
-        <div class="trackmap lv-map" id="lv-map" role="img" aria-label="Position auf der Strecke, aktuelle Runde nach Zeitverlust gefärbt"></div>
+      <div class="lv-card lv-mapcard a-map">
+        <div class="card-head"><div class="subchart-title">Strecke</div><div class="legend" id="lv-map-legend"></div></div>
+        <div class="trackmap lv-map" id="lv-map" role="img" aria-label="Position auf der Strecke, aktuelle Runde nach Tempo gefärbt"></div>
         <div class="lv-progress" aria-hidden="true"><div id="lv-progress"></div></div>
       </div>
-      <div class="lv-side">
-        <div class="lv-card lv-inputs">
+
+      <div class="lv-card lv-trace a-trace">
+        <div class="card-head"><div class="subchart-title">Letzte 20 s</div><div class="legend" id="lv-trace-legend"></div></div>
+        <div class="lv-trace-box" id="lv-trace-speed" role="img" aria-label="Tempo der letzten 20 Sekunden"></div>
+        <div class="lv-trace-box small" id="lv-trace-pedals" role="img" aria-label="Gas und Bremse der letzten 20 Sekunden"></div>
+      </div>
+
+      <div class="lv-card a-sectors">
+        <div class="card-head"><div class="subchart-title">Abschnitte</div><div class="muted-sm" id="lv-sectors-sub"></div></div>
+        <div class="lv-sectors" id="lv-sectors"></div>
+      </div>
+
+      <div class="lv-card lv-inputs-card a-inputs">
+        <div class="lv-inputs">
           <div class="lv-speed"><span id="lv-speed">–</span><small>km/h</small></div>
           <div class="lv-gear"><span id="lv-gear">–</span><small>Gang</small></div>
           <div class="lv-rpm" aria-hidden="true"><div id="lv-rpm"></div></div>
           <div class="lv-rpm-txt" id="lv-rpm-txt"></div>
           <div class="lv-pedal"><span>Gas</span><div class="lv-pbar"><div id="lv-thr" class="thr"></div></div><b id="lv-thr-v">–</b></div>
           <div class="lv-pedal"><span>Bremse</span><div class="lv-pbar"><div id="lv-brk" class="brk"></div></div><b id="lv-brk-v">–</b></div>
+          <div class="lv-pedal"><span>Lenkung</span><div class="lv-steer" aria-hidden="true"><div class="lv-steer-zero"></div><div id="lv-steer"></div></div><b id="lv-steer-txt" class="steer-txt"></b></div>
         </div>
-        <div class="lv-card">
-          <div class="subchart-title">Abschnitte dieser Runde</div>
-          <div class="lv-sectors" id="lv-sectors"></div>
-          <div class="muted-sm" id="lv-sectors-sub"></div>
-        </div>
-      </div>
-    </div>
-
-    <section class="lv-tele" id="lv-tele" aria-label="Erweiterte Telemetrie">
-      <div class="lv-card lv-trace">
-        <div class="lv-trace-head">
-          <div class="subchart-title">Letzte 20 Sekunden</div>
-          <div class="legend" id="lv-trace-legend"></div>
-        </div>
-        <div class="lv-trace-box" id="lv-trace-speed" role="img" aria-label="Tempo der letzten 20 Sekunden"></div>
-        <div class="lv-trace-box small" id="lv-trace-pedals" role="img" aria-label="Gas und Bremse der letzten 20 Sekunden"></div>
-      </div>
-      <div class="lv-tele-grid">
-        <div class="lv-card" id="lv-tyres-card">
-          <div class="subchart-title">Reifen &amp; Bremsen <span class="muted-sm" id="lv-compound"></span></div>
-          <div class="lv-tyres" id="lv-tyres"></div>
-          <div class="legend" id="lv-tyre-legend"></div>
-        </div>
-        <div class="lv-card" id="lv-g-card">
-          <div class="subchart-title">G-Kräfte</div>
+        <div class="lv-gbox" id="lv-g-card">
           <div class="lv-g" id="lv-g" role="img" aria-label="G-Kräfte quer und längs"></div>
           <div class="lv-g-vals" id="lv-g-vals"></div>
         </div>
-        <div class="lv-card" id="lv-assist-card">
-          <div class="subchart-title">Fahrhilfen &amp; Lenkung</div>
-          <div class="lv-kv" id="lv-assist"></div>
-          <div class="lv-steer" aria-hidden="true"><div class="lv-steer-zero"></div><div id="lv-steer"></div></div>
-          <div class="muted-sm" id="lv-steer-txt"></div>
-        </div>
-        <div class="lv-card" id="lv-engine-card">
-          <div class="subchart-title">Motor &amp; Sprit</div>
-          <div class="lv-kv" id="lv-engine"></div>
-        </div>
       </div>
-    </section>
 
-    <div class="lv-card">
-      <div class="subchart-title">Runden dieser Session</div>
-      <div id="lv-laps"></div>
+      <div class="lv-card a-tyres" id="lv-tyres-card">
+        <div class="card-head"><div class="subchart-title">Reifen &amp; Bremsen <span class="muted-sm" id="lv-compound"></span></div><div class="legend" id="lv-tyre-legend"></div></div>
+        <div class="lv-tyres" id="lv-tyres"></div>
+      </div>
+
+      <div class="lv-card lv-vehicle a-vehicle">
+        <section id="lv-assist-card"><div class="subchart-title">Fahrhilfen</div><div class="lv-kv" id="lv-assist"></div></section>
+        <section id="lv-engine-card"><div class="subchart-title">Motor &amp; Sprit</div><div class="lv-kv" id="lv-engine"></div></section>
+      </div>
+
+      <div class="lv-card a-laps">
+        <div class="subchart-title">Runden dieser Session</div>
+        <div class="lv-laps" id="lv-laps"></div>
+      </div>
     </div>
   </main>
 
@@ -212,7 +195,7 @@
     </div>
   </template>
 
-  <script src="/static/app.js?v=0.6"></script>
-  <script src="/static/live.js?v=0.6"></script>
+  <script src="/static/app.js?v=0.7.2"></script>
+  <script src="/static/live.js?v=0.7.2"></script>
 </body>
 </html>
