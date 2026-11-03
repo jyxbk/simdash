@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>SimDash</title>
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/style.css?v=0.7.2">
+  <link rel="stylesheet" href="/static/style.css?v=0.8.0">
 </head>
 <body class="viz-root" data-palette="#3987e5">
   <header class="topbar">
@@ -18,13 +18,13 @@
     </a>
     <nav class="tabs" aria-label="Ansicht">
       <a href="#" data-tab="overview" aria-current="page">Übersicht</a>
+      <a href="#analyse" data-tab="analyse">Analyse</a>
       <a href="#live" data-tab="live">Live<span class="tab-dot" id="tab-live-dot" hidden></span></a>
     </nav>
     <span id="status" class="status" aria-live="polite"></span>
   </header>
 
-  <div id="overview-view">
-  <nav class="filters" aria-label="Filter">
+  <nav class="filters" id="filters" aria-label="Filter">
     <div id="game-chips" class="chips" role="group" aria-label="Spiel"></div>
     <div class="selects">
       <select id="f-track" aria-label="Strecke"><option value="">Alle Strecken</option></select>
@@ -33,6 +33,7 @@
     </div>
   </nav>
 
+  <div id="overview-view">
   <main>
     <section id="hero" class="hero" aria-label="Neueste Bestzeit"></section>
 
@@ -41,39 +42,9 @@
     <section aria-labelledby="h-bests">
       <div class="section-head">
         <h2 id="h-bests">Bestzeiten</h2>
-        <span class="hint">Tippen für Details</span>
+        <span class="hint">Antippen öffnet Analyse &amp; Coach</span>
       </div>
       <div id="bests" class="cards"></div>
-    </section>
-
-    <section id="detail" class="detail" hidden aria-labelledby="h-detail">
-      <div class="section-head">
-        <h2 id="h-detail">Rundenzeiten</h2>
-        <button id="detail-close" class="ghost" type="button" aria-label="Details schließen">✕</button>
-      </div>
-      <div class="detail-card">
-        <div id="detail-title" class="detail-title"></div>
-        <div class="legend" id="detail-legend"></div>
-        <div id="chart" class="chart" role="img"></div>
-        <details class="table-view">
-          <summary>Tabelle anzeigen</summary>
-          <div id="detail-table"></div>
-        </details>
-      </div>
-
-      <div class="detail-card analysis" id="analysis">
-        <div class="analysis-head">
-          <div>
-            <div class="detail-title">Wo gewinnst und verlierst du Zeit?</div>
-            <div class="muted-sm" id="analysis-sub"></div>
-          </div>
-          <div class="pickers">
-            <label>Runde <select id="pick-lap"></select></label>
-            <label>gegen <select id="pick-ref"></select></label>
-          </div>
-        </div>
-        <div id="analysis-body"></div>
-      </div>
     </section>
 
     <section aria-labelledby="h-sessions">
@@ -83,8 +54,56 @@
       <div id="sessions"></div>
     </section>
   </main>
-
   </div>
+
+  <main id="analyse-view" class="analyse" hidden aria-label="Analyse">
+    <div class="an-head">
+      <label class="an-combo">Strecke &amp; Auto
+        <select id="a-combo" aria-label="Strecke und Auto für die Analyse"></select>
+      </label>
+      <nav class="chips an-jump" aria-label="Springen zu">
+        <a class="chip" href="#coach" data-jump="coach">Coach</a>
+        <a class="chip" href="#analysis" data-jump="analysis">Rundenvergleich</a>
+        <a class="chip" href="#laptimes" data-jump="laptimes">Rundenzeiten</a>
+      </nav>
+    </div>
+    <div id="analyse-empty" class="detail-card" hidden></div>
+
+    <section class="detail-card coach" id="coach" aria-labelledby="h-coach">
+      <div class="analysis-head">
+        <div>
+          <div class="detail-title" id="h-coach">Wo steckt noch Zeit drin?</div>
+          <div class="muted-sm" id="coach-sub"></div>
+        </div>
+      </div>
+      <div id="coach-body"></div>
+    </section>
+
+    <section class="detail-card analysis" id="analysis" aria-labelledby="h-analysis">
+      <div class="analysis-head">
+        <div>
+          <div class="detail-title" id="h-analysis">Rundenvergleich</div>
+          <div class="muted-sm" id="analysis-sub"></div>
+        </div>
+        <div class="pickers">
+          <label>Runde <select id="pick-lap"></select></label>
+          <label>gegen <select id="pick-ref"></select></label>
+        </div>
+      </div>
+      <div id="analysis-body"></div>
+    </section>
+
+    <section class="detail-card" id="laptimes" aria-labelledby="h-laptimes">
+      <div class="detail-title" id="h-laptimes">Rundenzeiten</div>
+      <div class="muted-sm" id="detail-title"></div>
+      <div class="legend" id="detail-legend"></div>
+      <div id="chart" class="chart" role="img"></div>
+      <details class="table-view">
+        <summary>Tabelle anzeigen</summary>
+        <div id="detail-table"></div>
+      </details>
+    </section>
+  </main>
 
   <main id="live-view" class="live" hidden aria-label="Live">
     <div class="live-head">
@@ -195,7 +214,8 @@
     </div>
   </template>
 
-  <script src="/static/app.js?v=0.7.2"></script>
-  <script src="/static/live.js?v=0.7.2"></script>
+  <script src="/static/app.js?v=0.8.0"></script>
+  <script src="/static/coach.js?v=0.8.0"></script>
+  <script src="/static/live.js?v=0.8.0"></script>
 </body>
 </html>

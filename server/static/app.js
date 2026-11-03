@@ -145,7 +145,7 @@ function renderChips(games) {
   const list = ["", ...GAME_ORDER.filter((g) => games.includes(g)), ...games.filter((g) => !GAME_ORDER.includes(g))];
   $("#game-chips").replaceChildren(...list.map((g) => h("button", {
     class: "chip", type: "button", "aria-pressed": String(state.game === g),
-    onclick: () => { Object.assign(state, { game: g, track: "", car: "", selected: null }); $("#detail").hidden = true; load(); },
+    onclick: () => { Object.assign(state, { game: g, track: "", car: "" }); load(); },
   }, g ? gameName(g) : "Alle")));
 }
 
@@ -229,11 +229,33 @@ function renderBests(bests, laps) {
         h("span", { class: "game" }, gameName(c.game))),
       h("div", { class: "time" }, v ? fmt(v.lap_time_ms) : "–:––.–––"),
       sparkline(byCombo.get(key) || []),
+      h("div", { class: "potential", "data-combo": key }, potentialText(c)),
       h("div", { class: "meta" },
         h("span", {}, `${c.laps} ${c.laps === 1 ? "Runde" : "Runden"}`),
         h("span", {}, v ? `Bestzeit ${fmtDate(v.recorded_at)}` : "noch keine gültige Runde")),
     );
   }));
+}
+
+/* Potenzial je Kombination für die Karten (Coach-Ergebnis, zwischengespeichert bis neue Runden kommen) */
+const potentialCache = new Map();
+function potentialText(c) {
+  const ck = `${comboKey(c)}|${state.driver}|${c.laps}`;
+  const hit = potentialCache.get(ck);
+  if (hit === undefined) {
+    potentialCache.set(ck, null);
+    getJSON(`/api/coach?${new URLSearchParams({ game: c.game, track: c.track, layout: c.layout, car: c.car, ...driverParam() })}`)
+      .then((d) => {
+        potentialCache.set(ck, d);
+        const el = document.querySelector(`.card .potential[data-combo="${CSS.escape(comboKey(c))}"]`);
+        if (el) el.replaceChildren(...[potentialText(c)].flat());
+      }).catch(() => {});
+    return "";
+  }
+  if (!hit || hit.potential_ms == null) return "";
+  const top = hit.corners.filter((x) => x.gain_ms >= 30).sort((a, b) => b.gain_ms - a.gain_ms)[0];
+  if (!top) return "Coach: in jeder Kurve schon am Limit";
+  return [h("b", {}, `−${(hit.potential_ms / 1000).toFixed(2)} s`), ` Potenzial · v. a. Kurve ${top.no}`];
 }
 
 function lapBadges(l, pbId) {
@@ -302,24 +324,52 @@ function renderSessions(laps, bests) {
 // ---------------------------------------------------------------------------
 // Detail: Rundenzeiten-Diagramm (eine Serie, Crosshair + Tooltip, Tabelle)
 // ---------------------------------------------------------------------------
-async function openDetail(c) {
+/** Kombination in der Analyse öffnen (wechselt in den Analyse-Tab). */
+function openDetail(c) {
   state.selected = comboKey(c);
-  const sec = $("#detail");
-  sec.hidden = false;
-  $("#detail-title").replaceChildren(trackName(c), " ", h("span", { class: "car" }, `· ${pretty(c.car)} · ${gameName(c.game)}`));
+  if (currentTab() !== "analyse") location.hash = "#analyse";   // showTab → openAnalyse
+  else openAnalyse();
+  window.scrollTo({ top: 0 });
+}
+
+/** Analyse-Tab zeigen: Auswahl füllen, gewählte (oder zuletzt gefahrene) Kombination laden. */
+async function openAnalyse() {
+  const sel = $("#a-combo");
+  const bests = state.bests || [];
+  const empty = $("#analyse-empty");
+  const hasData = bests.length > 0;
+  empty.hidden = hasData;
+  for (const id of ["#coach", "#analysis", "#laptimes", ".an-head"]) $(id).hidden = !hasData;
+  if (!hasData) {
+    empty.replaceChildren(h("p", { class: "analysis-empty" }, state.loaded ? "Mit diesen Filtern gibt es keine Runden. Wähle oben ein anderes Spiel oder „Alle“." : "Lädt …"));
+    return;
+  }
+  let c = bests.find((b) => comboKey(b) === state.selected);
+  if (!c) { c = bests[0]; state.selected = comboKey(c); }
+  sel.replaceChildren(...bests.map((b) => h("option", { value: comboKey(b) },
+    `${trackName(b)} · ${pretty(b.car)} · ${gameName(b.game)}${b.best_valid ? " · " + fmt(b.best_valid.lap_time_ms) : ""}`)));
+  sel.value = state.selected;
+  $("#detail-title").textContent = `${trackName(c)} · ${pretty(c.car)} · ${gameName(c.game)} · ${c.laps} ${c.laps === 1 ? "Runde" : "Runden"}`;
   renderLegend();
   await refreshDetail(c);
-  sec.scrollIntoView({ behavior: "smooth", block: "start" });
-  renderBests(state.bests, state.laps);
+}
+$("#a-combo").addEventListener("change", (e) => { state.selected = e.target.value; openAnalyse(); renderBests(state.bests, state.laps); });
+for (const a of document.querySelectorAll("[data-jump]")) {
+  a.addEventListener("click", (e) => { e.preventDefault(); $(`#${a.dataset.jump}`).scrollIntoView({ behavior: "smooth", block: "start" }); });
 }
 
 async function refreshDetail(c) {
   const laps = (await getJSON(`/api/laps?${comboQuery(c)}`)).sort((a, b) => a.recorded_at.localeCompare(b.recorded_at));
+  // Nur neu zeichnen, wenn sich etwas geändert hat (läuft alle 15 s mit)
+  const sig = [comboKey(c), state.driver, laps.length, laps.length && laps[laps.length - 1].id, laps.map((l) => `${l.driver}${l.valid}`).join()].join("|");
+  if (state.detailSig === sig) return;
+  state.detailSig = sig;
   state.detail = { laps, pb: c.best_valid };
   drawChart(laps, c.best_valid);
   renderDetailTable(laps, c.best_valid);
   const keepSel = analysis.c && comboKey(analysis.c) === comboKey(c) ? [$("#pick-lap").value, $("#pick-ref").value] : null;
   await loadAnalysis(c);
+  loadCoach(c);
   if (keepSel && analysis.traced.some((l) => String(l.id) === keepSel[0]) && analysis.traced.some((l) => String(l.id) === keepSel[1])) {
     [$("#pick-lap").value, $("#pick-ref").value] = keepSel;
     renderAnalysis();
@@ -465,7 +515,7 @@ async function load() {
     const [f, st, bests, laps] = await Promise.all([
       getJSON("/api/filters"), getJSON(`/api/stats?${q}`), getJSON(`/api/bests?${q}`), getJSON(`/api/laps?${query({ limit: 2000 })}`),
     ]);
-    Object.assign(state, { bests, laps });
+    Object.assign(state, { bests, laps, loaded: true });
     renderChips(f.games);
     fillSelect($("#f-track"), f.tracks, "Alle Strecken", "track");
     fillSelect($("#f-car"), f.cars, "Alle Autos", "car");
@@ -475,11 +525,7 @@ async function load() {
     renderTiles(st);
     renderBests(bests, laps);
     renderSessions(laps, bests);
-    if (state.selected) {
-      const c = bests.find((b) => comboKey(b) === state.selected);
-      if (c) await refreshDetail(c);
-      else { $("#detail").hidden = true; state.selected = null; }
-    }
+    if (currentTab() === "analyse") await openAnalyse();
   } catch (e) {
     $("#status").textContent = "Server nicht erreichbar";
     console.error(e);
@@ -490,7 +536,7 @@ async function load() {
 
 $("#f-track").addEventListener("change", (e) => { state.track = e.target.value; load(); });
 $("#f-car").addEventListener("change", (e) => { state.car = e.target.value; load(); });
-$("#f-driver").addEventListener("change", (e) => { state.driver = e.target.value; state.selected = null; $("#detail").hidden = true; load(); });
+$("#f-driver").addEventListener("change", (e) => { state.driver = e.target.value; load(); });
 
 function renderDriverSelect(names) {
   state.drivers = names.filter(Boolean);
@@ -536,20 +582,17 @@ $("#dd-form").addEventListener("submit", async (e) => {
     load();
   } catch (err) { $("#dd-error").textContent = `Speichern fehlgeschlagen: ${err.message}`; }
 });
-$("#detail-close").addEventListener("click", () => {
-  $("#detail").hidden = true; state.selected = null; $("#tooltip").hidden = true; renderBests(state.bests, state.laps);
-});
 let resizeTimer;
 window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
-    if (state.detail && !$("#detail").hidden) { drawChart(state.detail.laps, state.detail.pb); if (analysis.traced.length) renderAnalysis(); }
+    if (state.detail && currentTab() === "analyse") { drawChart(state.detail.laps, state.detail.pb); if (analysis.traced.length) renderAnalysis(); renderCoach(); }
   }, 150);
 });
 
 load();
-setInterval(() => { if (!document.hidden && $("#tooltip").hidden && location.hash !== "#live") load(); }, 15000);
-document.addEventListener("visibilitychange", () => { if (!document.hidden && location.hash !== "#live") load(); });
+setInterval(() => { if (!document.hidden && $("#tooltip").hidden && currentTab() !== "live") load(); }, 15000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden && currentTab() !== "live") load(); });
 
 // ---------------------------------------------------------------------------
 // Analyse: wo Zeit gewonnen/verloren wird (braucht Runden mit Verlauf, Collector ≥ 0.2)

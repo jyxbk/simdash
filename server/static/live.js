@@ -13,16 +13,22 @@ const live = {
 const LIVE_STALE_S = 4;
 
 /* --- Tabs ------------------------------------------------------------------ */
+function currentTab() {
+  return location.hash === "#live" ? "live" : location.hash.startsWith("#analyse") ? "analyse" : "overview";
+}
 function showTab() {
-  const isLive = location.hash === "#live";
+  const tab = currentTab(), isLive = tab === "live";
   document.body.classList.toggle("is-live", isLive);
-  $("#overview-view").hidden = isLive;
-  $("#live-view").hidden = !isLive;
+  document.body.dataset.tab = tab;
+  $("#overview-view").hidden = tab !== "overview";
+  $("#analyse-view").hidden = tab !== "analyse";
+  $("#filters").hidden = isLive;
   for (const a of document.querySelectorAll(".tabs a")) {
-    if ((a.dataset.tab === "live") === isLive) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+    if (a.dataset.tab === tab) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   }
   $("#tooltip").hidden = true;
   if (isLive) startLive(); else { stopLive(); if (live.wasLive) load(); }
+  if (tab === "analyse") openAnalyse();
   live.wasLive = isLive;
 }
 window.addEventListener("hashchange", showTab);
@@ -43,7 +49,7 @@ async function requestWake() {        // Bildschirm am Handy anlassen, solange L
   try { if ("wakeLock" in navigator && !live.wake) live.wake = await navigator.wakeLock.request("screen"); } catch { /* egal */ }
 }
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && location.hash === "#live") { live.wake = null; requestWake(); }
+  if (!document.hidden && currentTab() === "live") { live.wake = null; requestWake(); }
 });
 
 /** Punkt im Tab „Live“, wenn gerade gefahren wird (auch in der Übersicht). */
@@ -374,7 +380,7 @@ function renderLaps() {
 /* Laufende Uhr flüssig zwischen den Paketen weiterzählen */
 function tick() {
   live.raf = requestAnimationFrame(tick);
-  if (location.hash !== "#live") return;
+  if (currentTab() !== "live") return;
   const d = live.data, el = $("#lv-time");
   if (!d || !d.game) { el.textContent = "–"; return; }
   let ms = d.current_ms;
@@ -386,13 +392,13 @@ function tick() {
 let liveResize;
 window.addEventListener("resize", () => {
   clearTimeout(liveResize);
-  liveResize = setTimeout(() => { if (location.hash === "#live" && live.geo) buildLiveMap(live.geo); }, 200);
+  liveResize = setTimeout(() => { if (currentTab() === "live" && live.geo) buildLiveMap(live.geo); }, 200);
 });
 
-setInterval(() => { if (!document.hidden && location.hash !== "#live") pollLiveDot(); }, 10000);
+setInterval(() => { if (!document.hidden && currentTab() !== "live") pollLiveDot(); }, 10000);
 // Karte wächst beim Fahren: unvollständige Streckenform alle 20 s neu holen
 setInterval(() => {
-  if (document.hidden || location.hash !== "#live" || !live.combo) return;
+  if (document.hidden || currentTab() !== "live" || !live.combo) return;
   if (!live.geo || (live.geo.coverage != null && live.geo.coverage < 0.97)) loadPb();
 }, 20000);
 

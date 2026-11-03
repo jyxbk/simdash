@@ -23,6 +23,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import coach
+
 BASE = Path(__file__).resolve().parent
 DB_PATH = Path(os.environ.get("SIMDASH_DB", BASE / "simdash.db"))
 TOKEN = os.environ.get("SIMDASH_TOKEN", "")
@@ -520,6 +522,13 @@ def trackmap(game: str, track: str, layout: str = "", points: int = Query(defaul
         return out
     return {"step": 1 / points, "x": fill(sample(src["x"])), "z": fill(sample(src["z"])),
             "coverage": round(cov, 3), "source": kind}
+
+
+@app.get("/api/coach")
+def coach_view(game: str, track: str, car: str, layout: str = "", driver: str | None = None) -> dict:
+    """Verbesserungspotenzial je Kurve: Bestzeit gegen deine beste Fahrt in jeder Kurve."""
+    laps = traces(game=game, track=track, car=car, layout=layout, driver=driver, limit=300)
+    return coach.analyze(laps)
 
 
 @app.get("/api/stats")
