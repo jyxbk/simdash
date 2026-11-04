@@ -108,6 +108,7 @@ function coachCard(c, rank) {
   const rm = c.ref_metrics, bm = c.best_metrics;
   const facts = [
     `Scheitel ${Math.round(rm.v_min)} → ${Math.round(bm.v_min)} km/h`,
+    c.gear && c.gear.best ? (c.gear.ref === c.gear.best ? `${c.gear.ref}. Gang` : `Gang ${c.gear.ref} → ${c.gear.best}`) : null,
     rm.brake_m != null && bm.brake_m != null ? `Bremspunkt ${rm.brake_m} → ${bm.brake_m} m vorm Scheitel` : null,
   ].filter(Boolean);
   return h("article", { class: `coach-card${coachState.focus === c.no ? " focus" : ""}`, "data-corner": c.no },
@@ -115,7 +116,7 @@ function coachCard(c, rank) {
       h("div", {}, h("span", { class: "cc-rank" }, String(rank + 1)), h("b", {}, `Kurve ${c.no}`),
         h("span", { class: "muted-sm" }, ` · bei ${Math.round(c.apex * 100)} % der Runde`)),
       h("div", { class: "cc-gain" }, `−${secs(c.gain_ms)}`)),
-    c.tips.length ? h("ul", { class: "cc-tips" }, c.tips.slice(0, 2).map((t) => h("li", {}, t.text))) : null,
+    c.tips.length ? h("ul", { class: "cc-tips" }, c.tips.slice(0, 3).map((t) => h("li", {}, t.text))) : null,
     phaseBar,
     h("div", { class: "cc-facts" }, facts.join(" · ")),
     h("div", { class: "cc-foot" },
@@ -131,7 +132,7 @@ function coachTable(corners, top) {
   return h("div", { class: "coach-table" }, h("table", {},
     h("thead", {}, h("tr", {},
       h("th", {}, "Kurve"), h("th", {}, "Potenzial"), h("th", { class: "num hide-sm" }, "Streuung"),
-      h("th", { class: "num" }, "Scheitel km/h"), h("th", { class: "num hide-sm" }, "Bremse m vorm Scheitel"),
+      h("th", { class: "num" }, "Scheitel km/h"), h("th", { class: "num" }, "Gang"), h("th", { class: "num hide-sm" }, "Bremse m vorm Scheitel"),
       h("th", { class: "num hide-md" }, "Vollgas m danach"))),
     h("tbody", {}, corners.map((c) => {
       const rm = c.ref_metrics, bm = c.best_metrics, same = c.gain_ms < MIN_GAIN;
@@ -143,6 +144,7 @@ function coachTable(corners, top) {
           h("b", { class: "num" }, same ? "✓" : `−${secs(c.gain_ms, 2)}`))),
         h("td", { class: "num hide-sm" }, `±${secs(c.spread_ms, 2)}`),
         h("td", { class: "num" }, same ? m(rm.v_min) : pair(rm.v_min, bm.v_min)),
+        h("td", { class: "num" }, !c.gear || !c.gear.ref ? "–" : same || !c.gear.best || c.gear.ref === c.gear.best ? String(c.gear.ref) : pair(c.gear.ref, c.gear.best)),
         h("td", { class: "num hide-sm" }, same ? m(rm.brake_m) : pair(rm.brake_m, bm.brake_m)),
         h("td", { class: "num hide-md" }, same ? m(rm.full_throttle_m) : pair(rm.full_throttle_m, bm.full_throttle_m)));
       tr.addEventListener("keydown", (e) => { if (e.key === "Enter") focusCorner(c.no); });

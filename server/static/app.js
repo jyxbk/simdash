@@ -663,6 +663,14 @@ async function loadAnalysis(c) {
   renderAnalysis();
 }
 
+/** Gänge einer Runde; kurzes N beim Schalten und Lücken zeigen den letzten echten Gang. */
+function gearOf(l) {
+  const g = l.trace.g;
+  if (!g) return null;
+  let last = null;
+  return g.map((v) => { if (v != null && v > 0) last = v; return last; });
+}
+
 function renderAnalysis() {
   const traced = analysis.traced;
   const sel = traced.find((l) => String(l.id) === $("#pick-lap").value);
@@ -749,6 +757,19 @@ function renderAnalysis() {
       h("div", { class: "legend" }, key("var(--series-1)", `Runde ${sel.lap_number}`), key("var(--series-2)", ref.id === pbId ? "Bestzeit" : `Runde ${ref.lap_number}`)),
       speedBox);
   }
+
+  // 4) Gang und Lenkung (Collector ab 0.6, alte Runden haben das nicht)
+  const lineKey = (color, label) => { const v = s("svg", { width: 18, height: 10 }); v.append(s("line", { x1: 1, y1: 5, x2: 17, y2: 5, stroke: color, "stroke-width": 2, "stroke-linecap": "round" })); return h("span", { class: "key" }, v, label); };
+  const lapKeys = (field, extra) => h("div", { class: "legend" },
+    sel.trace[field] ? lineKey("var(--series-1)", `Runde ${sel.lap_number}`) : null,
+    ref.trace[field] ? lineKey("var(--series-2)", ref.id === pbId ? "Bestzeit" : `Runde ${ref.lap_number}`) : null,
+    !sel.trace[field] || !ref.trace[field] ? h("span", { class: "key muted" }, "die andere Runde hat diese Daten noch nicht") : null,
+    extra ? h("span", { class: "key muted" }, extra) : null);
+  const hasGear = sel.trace.g || ref.trace.g, hasSteer = sel.trace.st || ref.trace.st;
+  const gearBox = hasGear ? h("div", { class: "xy small", role: "img", "aria-label": "Gang entlang der Runde" }) : null;
+  const steerBox = hasSteer ? h("div", { class: "xy small", role: "img", "aria-label": "Lenkung entlang der Runde" }) : null;
+  if (gearBox) kids.push(h("div", { class: "subchart-title" }, "Gang"), lapKeys("g"), gearBox);
+  if (steerBox) kids.push(h("div", { class: "subchart-title" }, "Lenkung (%)"), lapKeys("st", "oben = rechts"), steerBox);
   body.replaceChildren(...kids);
 
   const tipFor = (i) => {
@@ -759,6 +780,11 @@ function renderAnalysis() {
       if (a != null) rows.push(h("div", { class: "k" }, h("i"), `${Math.round(a)} km/h Runde ${sel.lap_number}`));
       if (b != null) rows.push(h("div", { class: "k" }, h("i", { style: "background: var(--series-2)" }), `${Math.round(b)} km/h Vergleich`));
     }
+    if (i < n) {
+      const fmtPair = (arr1, arr2, f) => [arr1 && arr1[i] != null ? f(arr1[i]) : "–", arr2 && arr2[i] != null ? f(arr2[i]) : "–"].join(" / ");
+      if (hasGear) rows.push(h("div", { class: "k" }, `Gang ${fmtPair(gearOf(sel), gearOf(ref), (v) => v)}`));
+      if (hasSteer) rows.push(h("div", { class: "k" }, `Lenkung ${fmtPair(sel.trace.st, ref.trace.st, (v) => `${Math.round(v * 100)} %`)}`));
+    }
     return rows;
   };
 
@@ -768,6 +794,14 @@ function renderAnalysis() {
   if (speedBox) {
     const sv = [...sel.trace.v, null], rv = [...ref.trace.v, null];
     analysis.charts.push(drawXY(speedBox, { xs, series: [{ values: rv, color: "var(--series-2)" }, { values: sv, color: "var(--series-1)" }], yFmt: (v) => Math.round(v), tip: tipFor }));
+  }
+  if (gearBox) {
+    const series = [[ref, "var(--series-2)"], [sel, "var(--series-1)"]].filter(([l]) => l.trace.g).map(([l, color]) => ({ values: [...gearOf(l), null], color }));
+    analysis.charts.push(drawXY(gearBox, { xs, series, yStep: 1, yFmt: (v) => Math.round(v), tip: tipFor }));
+  }
+  if (steerBox) {
+    const series = [[ref, "var(--series-2)"], [sel, "var(--series-1)"]].filter(([l]) => l.trace.st).map(([l, color]) => ({ values: [...l.trace.st.map((v) => (v == null ? null : v * 100)), null], color }));
+    analysis.charts.push(drawXY(steerBox, { xs, series, zero: true, yFmt: (v) => Math.round(v), tip: tipFor }));
   }
 }
 
@@ -954,7 +988,7 @@ function niceStep(range, target = 4) {
 }
 
 /** Linien über die Runde (x = 0..1). Crosshair ist mit den anderen Analyse-Diagrammen gekoppelt. */
-function drawXY(box, { xs, series, signArea = false, zero = false, yFmt, tip }) {
+function drawXY(box, { xs, series, signArea = false, zero = false, yFmt, yStep, tip }) {
   const W = box.clientWidth || 600, H = box.clientHeight || 200;
   const m = { l: 46, r: 10, t: 10, b: 22 };
   const all = series.flatMap((se) => se.values.filter((v) => v != null));
@@ -966,7 +1000,7 @@ function drawXY(box, { xs, series, signArea = false, zero = false, yFmt, tip }) 
   const y = (v) => m.t + (1 - (v - lo) / (hi - lo)) * (H - m.t - m.b);
   const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, "aria-hidden": "true" });
   const grid = s("g", { class: "grid" }), axis = s("g", { class: "axis" });
-  const st = niceStep(hi - lo);
+  const st = yStep || niceStep(hi - lo);
   for (let v = Math.ceil(lo / st) * st; v <= hi; v += st) {
     grid.append(s("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) }));
     const t = s("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" }); t.textContent = yFmt(v); axis.append(t);

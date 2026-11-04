@@ -17,7 +17,7 @@ Interactive docs: FastAPI serves them at `/docs` (Swagger) and `/redoc`.
 
 | Method & path | Auth | Description |
 |---|---|---|
-| `POST /api/laps` | token | Add laps (list of lap objects, see below). Laps with a known `uid` are ignored. Returns `{"received", "added"}` |
+| `POST /api/laps` | token | Add laps (list of lap objects, see below). Laps with a known `uid` are ignored, and so is the same lap under another `uid` (same combination, time and lap number, at most 2 s apart). Returns `{"received", "added"}` |
 | `GET /api/laps` | open | Laps, newest first. Filters: `game`, `track`, `layout`, `car`, `driver`, `session_uid`, `limit` (≤ 5000, default 100). Each lap has `has_trace` |
 | `GET /api/bests` | open | Per combination: `laps`, `last_driven`, `best_valid` (fastest valid, non-estimated lap), `best_any`. Filters: `game`, `track`, `car`, `driver` |
 | `GET /api/traces` | open | Laps of one combination **with** `trace`. Required: `game`, `track`, `car`. Optional: `layout`, `driver`, `limit` (≤ 1000). All traces are resampled to the same point count |
@@ -76,9 +76,12 @@ at most 1000 values. See [architecture.md](architecture.md#trace-format).
 }
 ```
 
+`corners[].gear` is `{"ref", "best"}` or `null` without gear data. Metrics also
+contain `gear`, `steer_peak` and `steer_work` when available.
+
 `tips[].kind` is one of `brake_later`, `brake_earlier`, `carry_speed`,
-`throttle_earlier`, `better_exit`, `entry_speed`, `brake_later_ok`, `entry`,
-`exit`. The `text` field is German.
+`throttle_earlier`, `better_exit`, `entry_speed`, `brake_later_ok`, `gear_higher`,
+`gear_lower`, `steer_calmer`, `less_lock`, `entry`, `exit`. The `text` field is German.
 
 ## Live
 

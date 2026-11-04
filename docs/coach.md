@@ -63,6 +63,9 @@ Measured on both the reference lap and the model lap:
 | Exit speed | speed halfway between apex and segment end |
 | Braking point | first point where brake ≥ 15 %, interpolated between grid points, shown in metres before the apex |
 | Full throttle | first point after the apex where throttle ≥ 90 %, shown in metres after the apex |
+| Gear | most frequent real gear around the apex; neutral during a shift is ignored (collector ≥ 0.6) |
+| Steering peak | largest steering value from braking to just after the apex (collector ≥ 0.6) |
+| Steering work | sum of all steering movements over the same stretch (collector ≥ 0.6) |
 
 Metres come from the track length, which is estimated by integrating speed ×
 time over the clean laps (median).
@@ -80,10 +83,18 @@ model lap's point of view:
 | full throttle ≥ 8 m earlier | "Geh etwa N m früher voll aufs Gas" (full throttle earlier) |
 | ≥ 3 km/h more exit speed | "Besserer Ausgang" (better exit), unless the throttle tip already covers it |
 | ≥ 4 km/h more entry speed | "Komm mit N km/h mehr an" (arrive with more speed), only if nothing else applies |
+| different gear at the apex | "Nimm die Kurve einen Gang höher/tiefer" (a gear higher or lower) |
+| ≥ 35 % less steering work, at least 0.5 less | "Lenke ruhiger" (calmer steering) |
+| ≥ 6 points less steering **and** ≥ 2 km/h more apex speed | "Du lenkst stärker ein und bist trotzdem langsamer" (too much lock) |
 | none of the above | which phase loses the time (entry or exit) |
 
-Tips are sorted by a score: the difference divided by its threshold. The UI
-shows the top two.
+Laps from before collector 0.6 have no gear or steering data. If the PB lap or
+the model lap is such a lap, the coach compares the fastest newer lap with the
+fastest newer run through that corner, and the tip ends with *"(laut neueren
+Runden)"* (according to newer laps). It needs a difference of at least 30 ms.
+
+Tips are sorted by a score: the difference divided by its threshold, or a fixed
+weight for gear and steering. The UI shows the top three.
 
 ## 6. Session report and corner history
 
@@ -97,6 +108,8 @@ shows the top two.
 - **Resolution**: collector 0.6 records a point every 0.125 % of the lap
   (≈ 5 m on a 4 km track). Older laps have 0.5 % (≈ 20 m). Braking points
   from old laps are good to about ±5–10 m.
+- **Steering tips are hints, not proof.** Less steering in a faster run doesn't
+  show that calmer steering caused the gain.
 - **Line choice is not measured.** Speed and pedals show *what* differs, not
   *where on the road* you drove.
 - **Corners are found on the reference lap.** If the PB changes, the corner

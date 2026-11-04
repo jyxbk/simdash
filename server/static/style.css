@@ -869,3 +869,6 @@ svg.mini .reflabel { fill: var(--good); font-size: 10.5px; font-weight: 600; }
 .session-side .driver-btn + .driver-btn { margin-left: -.2rem; }
 .an-row[hidden] { display: none; }
 .notes-form .primary { background: var(--text-primary); color: var(--page); border: 1px solid var(--text-primary); border-radius: 8px; padding: .3rem .9rem; font-weight: 650; cursor: pointer; }
+
+/* Gang und Lenkung im Rundenvergleich (v0.10) */
+.xy.small { height: 120px; }

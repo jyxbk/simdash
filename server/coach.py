@@ -170,6 +170,19 @@ def _metrics(lap: dict, c: dict, n: int) -> dict:
         m["brake_max"] = round(max(brk[(a + k) % n] for k in range((apex - a) % n + 1)))
     if thr is not None:
         m["full_throttle"] = _cross(thr, (vmin_i - 2 * q) % n, end, THROTTLE_FULL)
+    # Gang am Scheitel: häufigster echter Gang (kurzes N beim Schalten zählt nicht)
+    g = tr.get("g")
+    if g and len(g) == n:
+        gears = [g[(vmin_i + d) % n] for d in range(-2 * q, 2 * q + 1)]
+        gears = [x for x in gears if x is not None and x > 0]
+        if gears:
+            m["gear"] = max(set(gears), key=gears.count)
+    st = _filled(tr.get("st"), n)
+    if st is not None:
+        vals = [st[(a + k) % n] for k in range((apex - a) % n + 10 * q)]
+        if len(vals) > 1:
+            m["steer_peak"] = round(max(abs(x) for x in vals), 2)
+            m["steer_work"] = round(sum(abs(vals[i + 1] - vals[i]) for i in range(len(vals) - 1)), 2)
     return m
 
 
@@ -213,6 +226,27 @@ def tips_for(ref: dict, best: dict, n: int, m_per_idx: float) -> list[dict]:
         out.append({"kind": "brake_later_ok", "value": round(-db), "score": 0.5,
                     "text": f"Die schnellere Fahrt hat {round(-db)} m früher gebremst und war trotzdem schneller (ruhiger rein)"})
     return sorted(out, key=lambda t: -t["score"])
+
+
+def control_tips(ref: dict, best: dict) -> list[dict]:
+    """Gang und Lenkung: was die schnellere Fahrt anders macht (nur wenn beide Runden Daten haben)."""
+    out = []
+    a, b = ref.get("gear"), best.get("gear")
+    if a and b and a != b:
+        d = abs(b - a)
+        word = "einen Gang" if d == 1 else f"{d} Gänge"
+        out.append({"kind": "gear_higher" if b > a else "gear_lower", "value": b - a, "score": 1.6 * d,
+                    "text": f"Nimm die Kurve {word} {'höher' if b > a else 'tiefer'} ({b}. statt {a}. Gang)"})
+    wa, wb = ref.get("steer_work"), best.get("steer_work")
+    if wa is not None and wb is not None and wa >= wb * 1.35 and wa - wb >= 0.5:
+        pct = round((1 - wb / wa) * 100)
+        out.append({"kind": "steer_calmer", "value": pct, "score": 1.2,
+                    "text": f"Lenke ruhiger: die schnellere Fahrt kommt mit {pct} % weniger Lenkbewegung aus"})
+    pa, pb = ref.get("steer_peak"), best.get("steer_peak")
+    if pa is not None and pb is not None and pa - pb >= 0.06 and best["v_min"] - ref["v_min"] >= 2:
+        out.append({"kind": "less_lock", "value": round((pa - pb) * 100), "score": 1.1,
+                    "text": f"Du lenkst stärker ein ({round(pa * 100)} statt {round(pb * 100)} %) und bist trotzdem langsamer: sanfter einlenken"})
+    return out
 
 
 def analyze(laps: list[dict]) -> dict:
@@ -283,6 +317,23 @@ def analyze(laps: list[dict]) -> dict:
             if None not in (e_r, e_b):
                 phase = {"entry_ms": round(e_r - e_b), "exit_ms": round(gain - (e_r - e_b))}
         tips = tips_for(rm, bm, n, m_per_idx) if gain >= 30 else []
+        # Gang/Lenkung: alte Runden haben das nicht. Fehlt es bei Bestzeit oder Vorbild, vergleichen
+        # wir die schnellste neuere Runde mit der schnellsten neueren Fahrt in dieser Kurve.
+        ca, cb, note = rm, bm, ""
+        has = lambda x: "gear" in x or "steer_work" in x
+        if not (has(rm) and has(bm)):
+            newer = [(l, t) for l, t in seg if l["trace"].get("g") or l["trace"].get("st")]
+            ca, cb = None, None
+            if newer:
+                la, ta = min(newer, key=lambda x: x[0]["lap_time_ms"])
+                lb, tb = min(newer, key=lambda x: x[1])
+                ca, cb = _metrics(la, c, n), _metrics(lb, c, n)
+                if ta - tb < 30:
+                    cb = ca                      # kein echter Unterschied, also kein Tipp
+                note = " (laut neueren Runden)"
+        if gain >= 30 and ca is not None:
+            tips += [{**t, "text": t["text"] + note} for t in control_tips(ca, cb)]
+            tips.sort(key=lambda t: -t["score"])
         frac = lambda i: round((i % n) / n, 4)
         out.append({
             "no": k + 1, "start": frac(a), "apex": frac(c["apex"]), "end": frac(b),
@@ -291,6 +342,7 @@ def analyze(laps: list[dict]) -> dict:
             "spread_ms": round(statistics.pstdev(times)) if len(times) > 1 else 0,
             "best_lap": {"id": best_l["id"], "lap_number": best_l.get("lap_number"), "lap_time_ms": best_l["lap_time_ms"]},
             "ref_metrics": _round_metrics(rm, c["apex"], n, m_per_idx), "best_metrics": _round_metrics(bm, c["apex"], n, m_per_idx),
+            "gear": {"ref": ca.get("gear"), "best": cb.get("gear")} if ca is not None and ca.get("gear") else None,
             "phase": phase, "tips": tips or _phase_tip(phase, gain),
             "history": _history(usable, c, n, m_per_idx, ref["lap_time_ms"] * CLEAN_FACTOR),
         })
@@ -316,7 +368,8 @@ def _history(laps: list[dict], c: dict, n: int, m_per_idx: float, clean_max: flo
         m = _round_metrics(_metrics(l, c, n), c["apex"], n, m_per_idx)
         out.append({"id": l["id"], "lap_number": l.get("lap_number"), "recorded_at": l.get("recorded_at"),
                     "session_uid": l.get("session_uid") or "", "ms": round(ms), "clean": l["lap_time_ms"] <= clean_max,
-                    "v_min": m.get("v_min"), "brake_m": m.get("brake_m")})
+                    "v_min": m.get("v_min"), "brake_m": m.get("brake_m"), "gear": m.get("gear"),
+                    "steer_work": m.get("steer_work")})
     return out
 
 
@@ -333,7 +386,7 @@ def _phase_tip(phase: dict | None, gain: float) -> list[dict]:
 
 def _round_metrics(m: dict, apex: int, n: int, m_per_idx: float) -> dict:
     """Positionen als Meter relativ zum Scheitel (Bremspunkt: davor, Vollgas: danach)."""
-    out = {k: m[k] for k in ("v_min", "v_entry", "v_exit", "brake_max") if k in m}
+    out = {k: m[k] for k in ("v_min", "v_entry", "v_exit", "brake_max", "gear", "steer_peak", "steer_work") if k in m}
     if m.get("brake") is not None:
         out["brake_m"] = round(((apex - m["brake"]) % n) * m_per_idx)
     if m.get("full_throttle") is not None:

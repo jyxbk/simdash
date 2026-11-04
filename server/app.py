@@ -359,9 +359,19 @@ def health() -> dict:
     return {"ok": True}
 
 
+def is_twin(con: sqlite3.Connection, lap: LapIn) -> bool:
+    """Gibt es dieselbe Runde schon unter anderer uid (zwei Collector liefen gleichzeitig)?"""
+    rows = con.execute(
+        """SELECT recorded_at FROM laps WHERE game=? AND track=? AND layout=? AND car=? AND lap_time_ms=?
+           AND lap_number IS ? AND uid != ?""",
+        (lap.game, lap.track, lap.layout, lap.car, lap.lap_time_ms, lap.lap_number, lap.uid)).fetchall()
+    return any(abs((datetime.fromisoformat(r[0]) - lap.recorded_at).total_seconds()) <= 2 for r in rows)
+
+
 @app.post("/api/laps", dependencies=[Depends(require_token)])
 def add_laps(laps: list[LapIn]) -> dict:
-    """Nimmt Runden an. Doppelt geschickte Runden (gleiche uid) werden ignoriert."""
+    """Nimmt Runden an. Doppelt geschickte Runden (gleiche uid) werden ignoriert, ebenso dieselbe
+    Runde von einem zweiten Collector (gleiche Zeit und Runde, höchstens 2 s auseinander)."""
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     added = 0
     with db() as con:
@@ -371,6 +381,8 @@ def add_laps(laps: list[LapIn]) -> dict:
         for lap in laps:
             if cur_driver:
                 lap.driver = cur_driver
+            if is_twin(con, lap):
+                continue
             cur = con.execute(
                 """INSERT OR IGNORE INTO laps (uid, game, track, layout, car, session_uid,
                    session_type, lap_number, lap_time_ms, valid, estimated, outlap, inlap,

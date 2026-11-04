@@ -86,3 +86,47 @@ def test_coach_endpoint(tmp_path, monkeypatch):
         c.post("/api/laps", json=laps, headers={"Authorization": "Bearer geheim"})
         r = c.get("/api/coach", params={"game": "acevo", "track": "t", "car": "c"}).json()
     assert r["laps_used"] == 2 and len(r["corners"]) == 3 and r["potential_ms"] > 0
+
+
+def _with_controls(lap, gear, steer):
+    lap["trace"]["g"] = [gear] * N
+    lap["trace"]["st"] = list(steer)
+    return lap
+
+
+CALM = [0.2] * N
+WOBBLY = [0.2 + (0.15 if i % 2 else -0.15) for i in range(N)]
+
+
+def test_gear_and_steer_tips():
+    pb = _with_controls(make_lap(1, [(30, 90, 10), (90, 130, 8), (150, 70, 12)]), 3, WOBBLY)
+    other = _with_controls(make_lap(2, [(30, 80, 10), (90, 145, 8), (150, 70, 12)]), 4, CALM)
+    k2 = next(c for c in coach.analyze([pb, other])["corners"] if abs(c["apex"] - 90 / N) < 0.02)
+    kinds = {t["kind"] for t in k2["tips"]}
+    assert "gear_higher" in kinds and "steer_calmer" in kinds
+    assert k2["gear"] == {"ref": 3, "best": 4}
+    assert next(t for t in k2["tips"] if t["kind"] == "gear_higher")["text"].startswith("Nimm die Kurve einen Gang höher (4. statt 3.")
+
+
+def test_gear_ignores_neutral_while_shifting():
+    lap = _with_controls(make_lap(1, BASE), 3, CALM)
+    lap["trace"]["g"][30] = 0
+    c = {"start": 20, "apex": 30, "end": 80}
+    assert coach._metrics(lap, c, N)["gear"] == 3
+
+
+def test_old_pb_uses_newer_laps_for_gear():
+    """Alte Bestzeit ohne Gang: Tipp kommt aus dem Vergleich der neueren Runden und sagt das auch."""
+    pb = make_lap(1, [(30, 95, 10), (90, 125, 8), (150, 70, 12)])                      # alt, ohne Daten
+    new1 = _with_controls(make_lap(2, [(30, 80, 10), (90, 130, 8), (150, 70, 12)]), 3, CALM)
+    new2 = _with_controls(make_lap(3, [(30, 70, 10), (90, 145, 8), (150, 70, 12)]), 4, CALM)
+    k2 = next(c for c in coach.analyze([pb, new1, new2])["corners"] if abs(c["apex"] - 90 / N) < 0.02)
+    tip = next(t for t in k2["tips"] if t["kind"] == "gear_higher")
+    assert tip["text"].endswith("(laut neueren Runden)")
+
+
+def test_no_controls_no_control_tips():
+    pb = make_lap(1, [(30, 90, 10), (90, 130, 8), (150, 70, 12)])
+    other = make_lap(2, [(30, 80, 10), (90, 145, 8), (150, 70, 12)])
+    k2 = next(c for c in coach.analyze([pb, other])["corners"] if abs(c["apex"] - 90 / N) < 0.02)
+    assert k2["gear"] is None and not {t["kind"] for t in k2["tips"]} & {"gear_higher", "gear_lower", "steer_calmer", "less_lock"}

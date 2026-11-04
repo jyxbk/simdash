@@ -172,3 +172,14 @@ def test_setup_notes(client):
     assert [n["text"] for n in notes] == ["BB 57 % besser"]
     assert client.delete(f"/api/notes/{nid}").status_code == 200
     assert client.get("/api/notes", params=combo).json() == []
+
+
+def test_second_collector_twin_is_ignored(client):
+    """Zwei Collector gleichzeitig: dieselbe Runde kommt mit anderer uid, ms später."""
+    a = lap("twinuid01", 81000, session_uid="s1", lap_number=5, recorded_at="2026-11-01T14:00:00.100+00:00")
+    b = lap("twinuid02", 81000, session_uid="s2", lap_number=5, recorded_at="2026-11-01T14:00:00.117+00:00")
+    assert client.post("/api/laps", json=[a], headers=AUTH).json()["added"] == 1
+    assert client.post("/api/laps", json=[b], headers=AUTH).json() == {"received": 1, "added": 0}
+    # gleiche Zeit später (eigene Runde) zählt
+    c = lap("twinuid03", 81000, session_uid="s1", lap_number=6, recorded_at="2026-11-01T14:01:21+00:00")
+    assert client.post("/api/laps", json=[c], headers=AUTH).json()["added"] == 1

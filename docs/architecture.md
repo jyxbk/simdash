@@ -54,6 +54,8 @@ collector must run in the interactive desktop session.
   track, or any incident, = invalid. The incident count is stored as a note.
 - **Out lap / in lap**: pit lane in the first half of the lap / ended in the
   pit lane.
+- **One instance**: a named mutex (`Local\\SimDashCollector`, collector ≥ 0.6.1)
+  stops a second collector in the same session. `--dump` is exempt.
 - **Session**: a new `session_uid` when game, track, car or session type
   changes, or when the lap counter goes backwards.
 - **Trace**: while a lap is running, every snapshot adds `(npos, ms, km/h, gas,

@@ -66,7 +66,7 @@ Choose the track and car at the top. The chips jump to the sections.
 - **Map and table of all corners**:
   - red means time to gain, grey means already optimal
   - tap a number or a row to select a corner
-  - the table shows potential, spread, apex speed, braking point (metres before
+  - the table shows potential, spread, apex speed, gear, braking point (metres before
     the apex) and full throttle (metres after the apex), each as PB → best run
 - **Corner history** ("Verlauf Kurve N: wirkt der Tipp?"): the selected
   corner's time and braking point for each lap, with a line for your best run.
@@ -100,6 +100,8 @@ the fastest other lap.
 
   Hovering the map moves the crosshair on all charts.
 - **Delta over the lap**, **10 mini sectors**, **speed overlay**.
+- **Gear** ("Gang") and **steering** ("Lenkung"), for laps recorded with collector
+  0.6 or newer. Up means steering right.
 
 ### Lap times ("Rundenzeiten")
 

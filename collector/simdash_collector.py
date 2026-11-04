@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "0.6.0"
+VERSION = "0.6.1"
 POLL_HZ = 50
 
 log = logging.getLogger("simdash")
@@ -1465,6 +1465,13 @@ def main() -> None:
         return
     if os.name != "nt":
         sys.exit("Der Collector läuft nur unter Windows (Shared Memory der Spiele).")
+
+    # Nur eine Instanz je Sitzung, sonst kommt jede Runde doppelt (Handle bleibt bis Prozessende offen)
+    mutex = None
+    if not args.dump:
+        mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "Local\\SimDashCollector")
+        if mutex and ctypes.windll.kernel32.GetLastError() == 183:   # ERROR_ALREADY_EXISTS
+            sys.exit("SimDash-Collector läuft schon.")
 
     folder = data_dir()
     folder.mkdir(parents=True, exist_ok=True)

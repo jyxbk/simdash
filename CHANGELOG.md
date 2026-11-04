@@ -4,6 +4,16 @@ Server/UI and collector have separate version numbers. The collector version is
 in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 `server/static/index.html`.
 
+## UI 0.10.0 · Collector 0.6.1 — 2026-11-04
+- **Gear and steering** in the lap comparison (charts linked to the other
+  charts, values in the tooltip).
+- **Coach**: gear per corner, tips for a higher or lower gear, calmer steering
+  and too much steering lock. If the PB lap or the model lap has no such data
+  yet, the tip compares newer laps and says so.
+- Fix: two collectors running at once stored every lap twice. The server now
+  ignores the same lap arriving under another `uid` (same time and lap number,
+  at most 2 s apart). Collector 0.6.1 refuses to start a second instance.
+
 ## UI 0.9.1 — 2026-11-04
 - Fix: the live tab stayed empty after the analysis tab was added.
 - Documentation (README, docs/).
