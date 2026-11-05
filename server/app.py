@@ -198,6 +198,11 @@ def me_name(con: sqlite3.Connection) -> str:
     return ""
 
 
+def driver_aliases(con: sqlite3.Connection) -> dict[str, str]:
+    """Namen aus den Spielen, die fest zu einem Fahrer gehören (z. B. Nickname in AC -> ich)."""
+    return json.loads(get_setting(con, "driver_aliases", "{}"))
+
+
 def current_driver(con: sqlite3.Connection) -> str:
     """Wer gerade fährt (leer = ich). Läuft nach CURRENT_DRIVER_IDLE_S ohne Aktivität ab."""
     name = get_setting(con, "current_driver")
@@ -211,6 +216,11 @@ def current_driver(con: sqlite3.Connection) -> str:
 
 
 class DriverIn(BaseModel):
+    driver: str = Field(default="", max_length=80)
+
+
+class AliasIn(BaseModel):
+    alias: str = Field(min_length=1, max_length=80)
     driver: str = Field(default="", max_length=80)
 
 
@@ -376,11 +386,11 @@ def add_laps(laps: list[LapIn]) -> dict:
     added = 0
     with db() as con:
         cur_driver = current_driver(con)
+        aliases = driver_aliases(con)
         if cur_driver and laps:
             set_setting(con, "current_driver_active", str(time.time()))
         for lap in laps:
-            if cur_driver:
-                lap.driver = cur_driver
+            lap.driver = cur_driver or aliases.get(lap.driver, lap.driver)
             if is_twin(con, lap):
                 continue
             cur = con.execute(
@@ -602,7 +612,7 @@ def drivers() -> dict:
     with db() as con:
         rows = con.execute("SELECT driver, COUNT(*) AS laps, MAX(recorded_at) AS last FROM laps "
                            "GROUP BY driver ORDER BY laps DESC").fetchall()
-        return {"me": me_name(con), "current": current_driver(con),
+        return {"me": me_name(con), "current": current_driver(con), "aliases": driver_aliases(con),
                 "drivers": [{"name": r["driver"], "laps": r["laps"], "last": r["last"]} for r in rows]}
 
 
@@ -623,6 +633,24 @@ def set_me(body: DriverIn) -> dict:
     with db() as con:
         set_setting(con, "me", body.driver.strip())
         return {"me": me_name(con)}
+
+
+@app.post("/api/drivers/alias", dependencies=[Depends(require_lan)])
+def set_alias(body: AliasIn) -> dict:
+    """Name aus dem Spiel fest einem Fahrer zuordnen, auch für vorhandene Runden. Leerer Fahrer löscht."""
+    alias, driver = body.alias.strip(), body.driver.strip()
+    if not alias or alias == driver:
+        raise HTTPException(400, "alias und driver müssen sich unterscheiden")
+    with db() as con:
+        aliases = driver_aliases(con)
+        updated = 0
+        if driver:
+            aliases[alias] = driver
+            updated = con.execute("UPDATE laps SET driver=? WHERE driver=?", (driver, alias)).rowcount
+        else:
+            aliases.pop(alias, None)
+        set_setting(con, "driver_aliases", json.dumps(aliases, ensure_ascii=False))
+    return {"aliases": aliases, "updated": updated}
 
 
 @app.post("/api/laps/driver", dependencies=[Depends(require_lan)])

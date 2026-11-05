@@ -112,7 +112,7 @@ and WAL mode.
 | `laps` | One row per lap: `uid` (from the collector, unique → duplicates are ignored), game, track, layout, car, `session_uid`, session type, lap number, `lap_time_ms`, `valid` (1/0/NULL), `estimated`, `outlap`, `inlap`, `online`, sectors, `driver`, `note`, timestamps |
 | `lap_traces` | `uid` → trace JSON (kept separate because of its size) |
 | `track_shapes` | Track outline learned from live positions: 1000 bins along the lap, coverage. This also works for tracks that are not a closed circuit, e.g. Nordschleife Touristenfahrten |
-| `settings` | `me` (your driver name, fixed once), `current_driver`, `current_driver_active` |
+| `settings` | `me` (your driver name, fixed once), `current_driver`, `current_driver_active`, `driver_aliases` (game name → driver) |
 | `setup_notes` | Notes per game, track, layout and car |
 
 ### Live
@@ -133,7 +133,8 @@ The shape is sampled down to `points`, and small gaps are filled linearly.
 - `me` is your own name. It is set from the most frequent driver name once,
   then kept.
 - While `current_driver` is set, incoming laps are stored under that name. It
-  expires after 3 hours without laps.
+  expires after 3 hours without laps. Otherwise `driver_aliases` maps the name the
+  game reports to a driver.
 - Every filtered endpoint accepts `driver=`.
 
 ## Web UI

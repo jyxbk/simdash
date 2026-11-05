@@ -95,7 +95,8 @@ contain `gear`, `steer_peak` and `steer_work` when available.
 
 | Method & path | Auth | Description |
 |---|---|---|
-| `GET /api/drivers` | open | `{me, current, drivers: [{name, laps, last}]}` |
+| `GET /api/drivers` | open | `{me, current, aliases, drivers: [{name, laps, last}]}` |
+| `POST /api/drivers/alias` | LAN | `{"alias": "Nickname", "driver": "Name"}`. Laps with this game name count for that driver, including existing ones. An empty `driver` removes the alias |
 | `POST /api/drivers/current` | LAN | `{"driver": "Max"}`. New laps get this name. An empty string or your own name means you |
 | `POST /api/drivers/me` | LAN | `{"driver": "Name"}`. Sets your own name |
 

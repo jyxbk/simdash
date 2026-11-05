@@ -568,6 +568,11 @@ function openDriverDialog(laps, title) {
     h("input", { type: "checkbox", value: l.id, checked: true }),
     h("span", { class: "num" }, `R${l.lap_number ?? "?"}`), h("span", { class: "num" }, fmt(l.lap_time_ms)),
     h("span", { class: "muted" }, l.driver || "–"))));
+  // Name aus dem Spiel (z. B. Nickname): auf Wunsch immer diesem Fahrer zuordnen
+  $("#dd-remember").checked = false;
+  $("#dd-remember-row").hidden = !cur;
+  $("#dd-remember-txt").textContent = `„${cur}“ künftig immer so zuordnen, auch alle bisherigen Runden`;
+  $("#dd-form").dataset.cur = cur;
   $("#dd-error").textContent = "";
   dlg.showModal();
   $("#dd-name").focus();
@@ -581,6 +586,11 @@ $("#dd-form").addEventListener("submit", async (e) => {
   if (!name) { $("#dd-error").textContent = "Bitte einen Namen eingeben."; return; }
   if (!ids.length) { $("#dd-error").textContent = "Keine Runde ausgewählt."; return; }
   try {
+    const cur = $("#dd-form").dataset.cur;
+    if ($("#dd-remember").checked && cur && cur !== name) {
+      const ra = await fetch("/api/drivers/alias", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ alias: cur, driver: name }) });
+      if (!ra.ok) throw new Error((await ra.json().catch(() => ({}))).detail || ra.status);
+    }
     const r = await fetch("/api/laps/driver", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ driver: name, ids }) });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.status);
     $("#driver-dialog").close();

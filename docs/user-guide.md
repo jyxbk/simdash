@@ -36,6 +36,10 @@ single laps, to another name.
 - Laps of other drivers don't count toward *your* bests. The driver filter at
   the top defaults to **"Ich"** (me). You can switch it to another driver or to
   all drivers.
+- If a game reports you under another name, such as a nickname, those laps count
+  as another driver. In the **✎** dialog, assign them to yourself and tick
+  **"künftig immer so zuordnen"**. All laps with that name, past and future, then
+  count for you.
 - In the live tab, **"Es fährt"** sets who is driving right now. All new laps
   go to that driver until you switch back, or until 3 hours pass without a lap.
 

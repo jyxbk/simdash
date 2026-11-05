@@ -183,3 +183,26 @@ def test_second_collector_twin_is_ignored(client):
     # gleiche Zeit später (eigene Runde) zählt
     c = lap("twinuid03", 81000, session_uid="s1", lap_number=6, recorded_at="2026-11-01T14:01:21+00:00")
     assert client.post("/api/laps", json=[c], headers=AUTH).json()["added"] == 1
+
+
+def test_driver_alias(client):
+    client.post("/api/laps", headers=AUTH, json=[lap("aliasuid1", 81000, driver="Alex", lap_number=1),
+                                                 lap("aliasuid2", 82000, driver="Alex", lap_number=2)])
+    assert client.get("/api/drivers").json()["me"] == "Alex"
+    # AC meldet einen Nickname: ohne Alias wäre die Runde im Standardfilter unsichtbar
+    nick = {"game": "ac", "track": "monza", "car": "c"}
+    client.post("/api/laps", headers=AUTH, json=[lap("aliasuid3", 90000, driver="Nick", lap_number=1, **nick)])
+    assert client.get("/api/laps", params={"driver": "Alex", "game": "ac"}).json() == []
+    r = client.post("/api/drivers/alias", json={"alias": "Nick", "driver": "Alex"}).json()
+    assert r["updated"] == 1 and r["aliases"] == {"Nick": "Alex"}
+    assert len(client.get("/api/laps", params={"driver": "Alex", "game": "ac"}).json()) == 1
+    # neue Runden unter dem Nickname zählen direkt
+    client.post("/api/laps", headers=AUTH, json=[lap("aliasuid4", 89000, driver="Nick", lap_number=2, **nick)])
+    assert len(client.get("/api/laps", params={"driver": "Alex", "game": "ac"}).json()) == 2
+    # „Es fährt“ hat Vorrang vor dem Alias
+    client.post("/api/drivers/current", json={"driver": "Gast"})
+    client.post("/api/laps", headers=AUTH, json=[lap("aliasuid5", 88000, driver="Nick", lap_number=3, **nick)])
+    assert len(client.get("/api/laps", params={"driver": "Gast", "game": "ac"}).json()) == 1
+    # Alias entfernen, ungültige Eingabe
+    assert client.post("/api/drivers/alias", json={"alias": "Nick", "driver": ""}).json()["aliases"] == {}
+    assert client.post("/api/drivers/alias", json={"alias": "X", "driver": "X"}).status_code == 400

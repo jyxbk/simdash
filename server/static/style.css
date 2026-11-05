@@ -872,3 +872,5 @@ svg.mini .reflabel { fill: var(--good); font-size: 10.5px; font-weight: 600; }
 
 /* Gang und Lenkung im Rundenvergleich (v0.10) */
 .xy.small { height: 120px; }
+.dd-remember { display: flex; align-items: flex-start; gap: .4rem; font-size: .84rem; color: var(--text-secondary); margin: .5rem 0; }
+.dd-remember[hidden] { display: none; }

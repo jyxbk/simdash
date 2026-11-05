@@ -10,6 +10,8 @@ in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 - **Coach**: gear per corner, tips for a higher or lower gear, calmer steering
   and too much steering lock. If the PB lap or the model lap has no such data
   yet, the tip compares newer laps and says so.
+- **Driver aliases**: a name from a game (e.g. a nickname in AC) can be tied to a
+  driver. Without this, such laps were hidden by the default driver filter.
 - Fix: two collectors running at once stored every lap twice. The server now
   ignores the same lap arriving under another `uid` (same time and lap number,
   at most 2 s apart). Collector 0.6.1 refuses to start a second instance.
