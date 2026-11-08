@@ -123,11 +123,11 @@ function renderCornerHistory() {
     const rb = avg(br.slice(-5), "brake_m");
     msgs.push(`Bremspunkt zuletzt ⌀ ${Math.round(rb)} m vorm Scheitel, beste Fahrt ${c.best_metrics.brake_m} m`);
   }
-  const tBox = h("div", { class: "mini-box", role: "img", "aria-label": `Zeit in Kurve ${c.no} je Runde` });
-  const bBox = br.length >= 3 ? h("div", { class: "mini-box", role: "img", "aria-label": `Bremspunkt in Kurve ${c.no} je Runde` }) : null;
-  const pick = h("div", { class: "chips ch-pick" }, d.corners.map((x) => h("button", { type: "button", class: "chip", "aria-pressed": String(x.no === c.no), onclick: () => { focusCorner(x.no, true); } }, `K${x.no}`)));
+  const tBox = h("div", { class: "mini-box", role: "img", "aria-label": `Zeit in ${cornerLabel(c)} je Runde` });
+  const bBox = br.length >= 3 ? h("div", { class: "mini-box", role: "img", "aria-label": `Bremspunkt in ${cornerLabel(c)} je Runde` }) : null;
+  const pick = h("div", { class: "chips ch-pick" }, d.corners.map((x) => h("button", { type: "button", class: "chip", "aria-pressed": String(x.no === c.no), onclick: () => { focusCorner(x.no, true); } }, cornerShort(x))));
   box.replaceChildren(
-    h("div", { class: "ch-head" }, h("div", { class: "subchart-title" }, `Verlauf Kurve ${c.no}: wirkt der Tipp?`), pick),
+    h("div", { class: "ch-head" }, h("div", { class: "subchart-title" }, `Verlauf ${cornerLabel(c)}: wirkt der Tipp?`), pick),
     msgs.length ? h("div", { class: "muted-sm ch-msg" }, msgs.join(" · ")) : null,
     h("div", { class: "ch-charts" },
       h("div", {}, h("div", { class: "mini-title" }, "Zeit in der Kurve (oben = schneller)"), tBox),
@@ -225,9 +225,9 @@ async function fillReportCoach(box, ls, combo) {
   const lines = [];
   const top = (d.corners || []).filter((c) => c.gain_ms >= MIN_GAIN).sort((a, b) => b.gain_ms - a.gain_ms)[0];
   if (d.ideal_ms && d.potential_ms != null) lines.push(h("li", {}, `Ideale Runde dieser Session `, h("b", {}, fmt(d.ideal_ms)), ` (${secs(d.potential_ms, 2)} unter deiner besten Runde heute).`));
-  if (top) lines.push(h("li", {}, `Größte Baustelle: `, h("b", {}, `Kurve ${top.no}`), ` (−${secs(top.gain_ms, 2)}). ${top.tips[0] ? top.tips[0].text + "." : ""}`));
+  if (top) lines.push(h("li", {}, `Größte Baustelle: `, h("b", {}, cornerLabel(top)), ` (−${secs(top.gain_ms, 2)}). ${top.tips[0] ? top.tips[0].text + "." : ""}`));
   const shaky = (d.corners || []).find((c) => c.no === d.least_consistent);
-  if (shaky && shaky.spread_ms >= 80) lines.push(h("li", {}, `Am unruhigsten: Kurve ${shaky.no} (±${secs(shaky.spread_ms, 2)}).`));
+  if (shaky && shaky.spread_ms >= 80) lines.push(h("li", {}, `Am unruhigsten: ${cornerLabel(shaky)} (±${secs(shaky.spread_ms, 2)}).`));
   if (notes.length) lines.push(h("li", { class: "rep-note" }, `Letzte Notiz (${shortDate(notes[0].created)}): „${notes[0].text}“`));
   box.replaceChildren(lines.length ? h("ul", { class: "coach-notes" }, lines) : "");
 }

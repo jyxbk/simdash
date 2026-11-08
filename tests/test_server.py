@@ -206,3 +206,18 @@ def test_driver_alias(client):
     # Alias entfernen, ungültige Eingabe
     assert client.post("/api/drivers/alias", json={"alias": "Nick", "driver": ""}).json()["aliases"] == {}
     assert client.post("/api/drivers/alias", json={"alias": "X", "driver": "X"}).status_code == 400
+
+
+def test_corner_names(client):
+    base = {"game": "acevo", "track": "road_atlanta", "layout": ""}
+    assert client.post("/api/corners", json={**base, "npos": 0.115, "name": "T1"}).status_code == 200
+    assert client.post("/api/corners", json={**base, "npos": 0.209, "name": "Esses"}).status_code == 200
+    # nah dran = dieselbe Kurve, ersetzt den Namen
+    client.post("/api/corners", json={**base, "npos": 0.118, "name": "Turn 1"})
+    names = client.get("/api/corners", params=base).json()
+    assert [n["name"] for n in names] == ["Turn 1", "Esses"]
+    import app as app_module
+    res = app_module._name_corners({"corners": [{"no": 1, "apex": 0.112}, {"no": 2, "apex": 0.5}]}, "acevo", "road_atlanta", "")
+    assert res["corners"][0]["name"] == "Turn 1" and "name" not in res["corners"][1]
+    client.post("/api/corners", json={**base, "npos": 0.21, "name": ""})        # löschen
+    assert [n["name"] for n in client.get("/api/corners", params=base).json()] == ["Turn 1"]

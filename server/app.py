@@ -84,6 +84,14 @@ CREATE TABLE IF NOT EXISTS setup_notes (
     created TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_notes_combo ON setup_notes(game, track, layout, car);
+CREATE TABLE IF NOT EXISTS corner_names (
+    game    TEXT NOT NULL,
+    track   TEXT NOT NULL,
+    layout  TEXT NOT NULL DEFAULT '',
+    npos    REAL NOT NULL,             -- Scheitel als Anteil der Runde (0..1)
+    name    TEXT NOT NULL,
+    PRIMARY KEY (game, track, layout, npos)
+);
 CREATE TABLE IF NOT EXISTS lap_traces (
     uid   TEXT PRIMARY KEY REFERENCES laps(uid) ON DELETE CASCADE,
     data  TEXT NOT NULL
@@ -119,6 +127,8 @@ class Trace(BaseModel):
     z: list[float | None] | None = Field(default=None, max_length=1000)
     g: list[int | None] | None = Field(default=None, max_length=1000)     # Gang (-1 R, 0 N)
     st: list[float | None] | None = Field(default=None, max_length=1000)  # Lenkung −1..1
+    ay: list[float | None] | None = Field(default=None, max_length=1000)  # Querbeschleunigung (g)
+    yaw: list[float | None] | None = Field(default=None, max_length=1000) # Gierrate (rad/s)
 
 
 class LapIn(BaseModel):
@@ -494,12 +504,43 @@ def traces(game: str, track: str, car: str, layout: str = "", driver: str | None
         trace = json.loads(d.pop("trace"))
         lap = row_to_lap(d)
         lap["trace"] = trace
+        lap["points"] = len(trace.get("t") or [])          # Auflösung vor dem Angleichen
         out.append(lap)
     # alte (200) und neue Runden (800 Punkte) auf ein Raster, damit Vergleiche Punkt für Punkt gehen
     n = max((len(l["trace"].get("t") or []) for l in out), default=0)
     for l in out:
         l["trace"] = coach.resample(l["trace"], n)
     return out
+
+
+_GEO_CACHE: dict = {}
+
+
+def track_geometry(game: str, track: str, layout: str) -> dict | None:
+    """Referenzrunde für die Kurven einer Strecke – egal welches Auto, welcher Fahrer. So hat
+    „Kurve 7“ (und jeder Kurvenname) in allen Auswertungen dieselbe Bedeutung.
+    Zwischengespeichert, bis eine neue Runde auf der Strecke dazukommt."""
+    with db() as con:
+        last = con.execute("SELECT MAX(l.id) FROM laps l JOIN lap_traces t ON t.uid = l.uid "
+                           "WHERE l.game=? AND l.track=? AND l.layout=?", (game, track, layout)).fetchone()[0]
+        key = (game, track, layout)
+        hit = _GEO_CACHE.get(key)
+        if hit and hit[0] == last:
+            return hit[1]
+        rows = con.execute(
+            """SELECT l.*, t.data AS trace FROM laps l JOIN lap_traces t ON t.uid = l.uid
+               WHERE l.game=? AND l.track=? AND l.layout=? ORDER BY l.lap_time_ms LIMIT 150""",
+            (game, track, layout)).fetchall()
+    laps = []
+    for r in rows:
+        d = dict(r)
+        tr = json.loads(d.pop("trace"))
+        lap = row_to_lap(d)
+        lap["trace"], lap["points"] = tr, len(tr.get("t") or [])
+        laps.append(lap)
+    geo = coach.geometry_lap(laps)
+    _GEO_CACHE[key] = (last, geo)
+    return geo
 
 
 @app.get("/api/trackmap")
@@ -571,9 +612,10 @@ def coach_view(game: str, track: str, car: str, layout: str = "", driver: str | 
 
     session_uid: nur diese Session auswerten (Session-Bericht)."""
     laps = traces(game=game, track=track, car=car, layout=layout, driver=driver, limit=300)
+    geo = track_geometry(game, track, layout)          # dieselben Kurven für alle Autos und Berichte
     if session_uid:
         laps = [l for l in laps if l.get("session_uid") == session_uid]
-    return coach.analyze(laps)
+    return _name_corners(coach.analyze(laps, geo), game, track, layout)
 
 
 def _lap_with_trace(con: sqlite3.Connection, lap_id: int) -> dict | None:
@@ -606,10 +648,11 @@ def coach_lap(id: int, ref_id: int | None = None) -> dict:
     if ref_id and not ref:
         raise HTTPException(404, "Referenzrunde nicht gefunden")
     auto = None
+    combo_laps = traces(game=lap["game"], track=lap["track"], car=lap["car"], layout=lap["layout"],
+                        driver=lap.get("driver"), limit=300)
+    geo = track_geometry(lap["game"], lap["track"], lap["layout"])
     if ref is None:
-        cand = [l for l in traces(game=lap["game"], track=lap["track"], car=lap["car"], layout=lap["layout"],
-                                  driver=lap.get("driver"), limit=300)
-                if _counts(l) and l["id"] != lap["id"] and coach._usable(l)]
+        cand = [l for l in combo_laps if _counts(l) and l["id"] != lap["id"] and coach._usable(l)]
         faster = [l for l in cand if l["lap_time_ms"] < lap["lap_time_ms"]]
         if faster:
             ref, auto = min(faster, key=lambda l: l["lap_time_ms"]), "pb"
@@ -622,7 +665,7 @@ def coach_lap(id: int, ref_id: int | None = None) -> dict:
         return {"ok": False, "reason": "no_reference", "lap": {"id": lap["id"], "lap_time_ms": lap["lap_time_ms"]}}
     if not lap.get("trace"):
         return {"ok": False, "reason": "no_trace", "lap": {"id": lap["id"], "lap_time_ms": lap["lap_time_ms"]}}
-    out = coach.compare_laps(lap, ref)
+    out = _name_corners(coach.compare_laps(lap, ref, geo), lap["game"], lap["track"], lap["layout"])
     out["ref_kind"] = auto or "chosen"
     out["lap_counts"] = _counts(lap)
     return out
@@ -635,9 +678,10 @@ def handling_view(game: str, track: str, car: str, layout: str = "", driver: str
 
     session_uid: nur diese Session (z. B. um eine Setup-Änderung zu prüfen)."""
     laps = traces(game=game, track=track, car=car, layout=layout, driver=driver, limit=300)
+    geo = track_geometry(game, track, layout)
     if session_uid:
         laps = [l for l in laps if l.get("session_uid") == session_uid]
-    return coach.handling(laps)
+    return _name_corners(coach.handling(laps, geo=geo), game, track, layout)
 
 
 @app.get("/api/stats")
@@ -784,6 +828,67 @@ def delete_note(note_id: int) -> dict:
         cur = con.execute("DELETE FROM setup_notes WHERE id=?", (note_id,))
     if not cur.rowcount:
         raise HTTPException(404, "Notiz nicht gefunden")
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Kurvennamen: je Strecke frei vergeben, gemerkt über die Lage des Scheitels (Anteil der Runde),
+# damit sie unabhängig von Auto, Referenzrunde und Kurvennummer passen.
+# ---------------------------------------------------------------------------
+CORNER_MATCH = 0.012          # so nah (Anteil der Runde, ~50 m auf 4 km) muss ein Scheitel liegen
+
+
+class CornerNameIn(BaseModel):
+    game: str = Field(min_length=1, max_length=40)
+    track: str = Field(min_length=1, max_length=80)
+    layout: str = Field(default="", max_length=80)
+    npos: float = Field(ge=0, le=1)
+    name: str = Field(default="", max_length=40)      # leer = Name löschen
+
+
+def _corner_names(game: str, track: str, layout: str) -> list[dict]:
+    with db() as con:
+        rows = con.execute("SELECT npos, name FROM corner_names WHERE game=? AND track=? AND layout=? ORDER BY npos",
+                           (game, track, layout)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _near(a: float, b: float) -> float:
+    d = abs(a - b) % 1
+    return min(d, 1 - d)
+
+
+def _name_corners(res: dict, game: str, track: str, layout: str) -> dict:
+    corners = res.get("corners") or []
+    if not corners:
+        return res
+    names = _corner_names(game, track, layout)
+    for c in corners:
+        best = min(names, key=lambda x: _near(x["npos"], c["apex"]), default=None)
+        if best and _near(best["npos"], c["apex"]) <= CORNER_MATCH:
+            c["name"] = best["name"]
+    return res
+
+
+@app.get("/api/corners")
+def list_corner_names(game: str, track: str, layout: str = "") -> list[dict]:
+    return _corner_names(game, track, layout)
+
+
+@app.post("/api/corners", dependencies=[Depends(require_lan)])
+def set_corner_name(body: CornerNameIn) -> dict:
+    """Namen für die Kurve an npos setzen (ersetzt einen Namen in der Nähe) oder mit leerem Namen löschen."""
+    name = body.name.strip()
+    with db() as con:
+        rows = con.execute("SELECT npos FROM corner_names WHERE game=? AND track=? AND layout=?",
+                           (body.game, body.track, body.layout)).fetchall()
+        for r in rows:
+            if _near(r["npos"], body.npos) <= CORNER_MATCH:
+                con.execute("DELETE FROM corner_names WHERE game=? AND track=? AND layout=? AND npos=?",
+                            (body.game, body.track, body.layout, r["npos"]))
+        if name:
+            con.execute("INSERT INTO corner_names (game, track, layout, npos, name) VALUES (?,?,?,?,?)",
+                        (body.game, body.track, body.layout, round(body.npos, 4), name))
     return {"ok": True}
 
 

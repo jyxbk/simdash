@@ -228,3 +228,11 @@ def test_build_trace_gear_steer():
     tr = sc.build_trace(samples)
     assert tr["g"][100] == 3 and tr["g"][600] == 4 and tr["x"] is None
     assert abs(tr["st"][400] - 0.0) < 0.02
+
+
+def test_build_trace_lateral_g_and_yaw():
+    samples = [(i / 100, i * 800, 150.0, 1.0, 0.0, 0.0, 0.0, 3, 0.1, 1.2, 0.35) for i in range(101)]
+    tr = sc.build_trace(samples)
+    assert tr["ay"][400] == 1.2 and tr["yaw"][400] == 0.35
+    tr = sc.build_trace([s[:9] for s in samples])          # ältere Proben ohne die Werte
+    assert tr["ay"] is None and tr["yaw"] is None

@@ -940,3 +940,9 @@ svg.mini .reflabel { fill: var(--good); font-size: 10.5px; font-weight: 600; }
 .fu-big .warn b { color: var(--warning); }
 @media (max-width: 760px) { .fu-grid { grid-template-columns: 1fr 1fr; } }
 .fu-pair select { flex: 0 0 auto; }
+
+/* Kurvennamen */
+.cn-edit { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: .85rem; padding: 0 .3rem; margin-left: .15rem; }
+.cn-edit:hover { color: var(--text-primary); }
+.hd-cost { color: var(--loss); }
+.cname { white-space: nowrap; } .cn-txt { margin-left: .4rem; font-weight: 600; }

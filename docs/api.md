@@ -51,6 +51,8 @@ at most 1000 values. See [architecture.md](architecture.md#trace-format).
 
 | Method & path | Auth | Description |
 |---|---|---|
+| `GET /api/corners` | open | Corner names of a track: `game`, `track`, `layout` → `[{npos, name}]` |
+| `POST /api/corners` | LAN | `{game, track, layout, npos, name}` – set a name (replaces one within 1.2 %), empty name deletes |
 | `GET /api/handling` | open | Handling/setup diagnosis. Required: `game`, `track`, `car`. Optional: `layout`, `driver`, `session_uid`. Returns `corners[].phases[]` (`steer_extra`, `countersteer_laps`, `kind`: under/over), `findings[]` (title, corners, setup `hints`) |
 | `GET /api/coach/lap` | open | Auto insights: lap `id` against `ref_id` (optional; default PB, or previous PB if `id` is the PB). Per corner: `loss_ms`, `phases` (brake/turnin/apex/exit), `tips`, `line` (x/z of both laps, `apex_offset_m`: + inside, − outside). Also `problems`, `gained`, `phase_totals` |
 | `GET /api/coach` | open | Coach analysis. Required: `game`, `track`, `car`. Optional: `layout`, `driver`, `session_uid` (only this session) |

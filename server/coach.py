@@ -127,6 +127,126 @@ def find_corners(v: list[float], drop: float = DROP_KMH, w: int = 1) -> list[dic
     return [{"apex": (mi + off) % n, "start": (ma + off) % n} for ma, mi in zip(maxima, minima)]
 
 
+def path_curvature(lap: dict, n: int) -> list[float] | None:
+    """Krümmung der gefahrenen Linie (1/m): aus Gierrate/Tempo, sonst aus den x/z-Positionen.
+
+    Das Vorzeichen ist je Quelle beliebig, aber innerhalb einer Runde einheitlich."""
+    tr = lap["trace"]
+    yaw, v = _filled(tr.get("yaw"), n), _filled(tr.get("v"), n)
+    if yaw is not None and v is not None and sum(x is not None for x in tr["yaw"]) >= 0.9 * n:
+        k = [y / (s / 3.6) if s > 30 else 0.0 for y, s in zip(yaw, v)]
+        return _smooth(k, max(1, round(2 * n / 800)))
+    return curvature(lap, n)
+
+
+CURVE_K = 1 / 400       # ab Radius < 400 m ist die Linie „in einer Kurve“
+CURVE_MIN_M = 50        # so lang muss der Bogen mindestens sein
+CURVE_MAX_R = 300       # engster Radius des Bogens höchstens so groß (sonst Vollgas-Knick)
+
+
+def detect_corners(lap: dict, n: int, m_per_idx: float | None = None) -> list[dict]:
+    """Kurven aus Tempo UND Linie: Tempo-Minima finden die Bremskurven, die Krümmung trennt
+    Wechselkurven (Esses) und findet Kurven ohne großen Tempoeinbruch. Nummeriert ab Ziellinie.
+
+    Liefert je Kurve apex (Scheitel) und start (Grenze zur Kurve davor: Tempo-Spitze, in
+    Wechselkurven ohne Spitze die gerade Stelle dazwischen)."""
+    v = _filled(lap["trace"].get("v"), n)
+    q = max(1, round(n / 200))
+    speed = find_corners(v, w=q)
+    apexes = [(c["apex"], "v") for c in speed]
+    k = path_curvature(lap, n)
+    ks = None
+    if k is not None:
+        ks = _smooth(k, max(1, round(3 * n / 800)))
+        m = m_per_idx or (track_length(lap) / n)
+        # Bögen mit gleichbleibender Richtung
+        regions, i = [], 0
+        while i < n:
+            if abs(ks[i]) > CURVE_K:
+                j, sg = i, ks[i] > 0
+                while j + 1 < n and abs(ks[j + 1]) > CURVE_K and (ks[j + 1] > 0) == sg:
+                    j += 1
+                pk = max(range(i, j + 1), key=lambda x: abs(ks[x]))
+                if (j - i + 1) * m >= CURVE_MIN_M and 1 / abs(ks[pk]) <= CURVE_MAX_R:
+                    regions.append((i, j, pk))
+                i = j + 1
+            else:
+                i += 1
+        # Tempo-Minimum auf gerader Strecke direkt vor/nach einem Bogen ist kein Scheitel
+        # (z. B. Bremsende vor dem Einlenken) → der Bogen bestimmt dort die Kurven
+        apexes = [(a, src) for a, src in apexes
+                  if abs(ks[a]) >= CURVE_K / 2 or not any(i - 6 * q <= a <= j + 6 * q for i, j, _ in regions)]
+        for i, j, pk in regions:
+            inside = [a for a, _ in apexes if i - q <= a <= j + q]
+            if inside:
+                continue
+            # Scheitel: echtes Tempo-Minimum mitten im Bogen, sonst die engste Stelle (am Rand
+            # liegt das Minimum oft nur, weil das Auto noch von der Kurve davor verzögert)
+            seg = range(i + q, j - q + 1)
+            vm = min(seg, key=lambda x: v[x]) if len(seg) else pk
+            dip = min(v[i], v[j]) - v[vm]
+            apexes.append((vm if dip >= 3 else pk, "k"))
+    if not apexes:
+        return []
+    apexes.sort()
+    uniq: list[tuple[int, str]] = []
+    for a, src in apexes:
+        if uniq and a - uniq[-1][0] < 2 * q:
+            if src == "v":
+                uniq[-1] = (a, src)
+            continue
+        uniq.append((a, src))
+    if len(uniq) > 1 and (uniq[0][0] + n) - uniq[-1][0] < 2 * q:
+        uniq.pop()
+    idx = [a for a, _ in uniq]
+    if len(idx) == 1:
+        return [{"apex": idx[0], "start": max(range(n), key=lambda x: v[x])}]
+    out = []
+    for t, a in enumerate(idx):
+        p = idx[t - 1]
+        between = [(p + d) % n for d in range(1, (a - p) % n)]
+        if not between:
+            out.append({"apex": a, "start": a})
+            continue
+        vmax = max(between, key=lambda x: v[x])
+        rise = min(v[vmax] - v[p], v[vmax] - v[a])
+        if rise >= 5 or ks is None:
+            b = vmax
+        else:
+            b = min(between, key=lambda x: abs(ks[x]))
+        out.append({"apex": a, "start": b})
+    return out
+
+
+def geometry_lap(laps: list[dict]) -> dict | None:
+    """Die Runde, aus der die Kurven einer Kombination bestimmt werden – für alle Auswertungen
+    dieselbe, damit „Kurve 7“ überall dieselbe Kurve ist: feinster Verlauf mit Linie
+    (Gierrate oder x/z), davon die schnellste saubere Runde."""
+    cand = [l for l in laps if _counting(l) and _usable(l)]
+    if not cand:
+        return None
+    def score(l):
+        tr = l["trace"]
+        has_line = bool(tr.get("yaw") or tr.get("x"))
+        return (has_line, l.get("points") or len(tr.get("t") or []), -l["lap_time_ms"])
+    return max(cand, key=score)
+
+
+def _corners_from(geo: dict | None, ref: dict, n: int, m_per_idx: float | None = None) -> list[dict]:
+    src = ref
+    if geo is not None and _usable(geo):
+        src = dict(geo, trace=resample(geo["trace"], n))
+    return detect_corners(src, n, m_per_idx)
+
+
+def corners_with_end(corners: list[dict], n: int) -> list[dict]:
+    for i, c in enumerate(corners):
+        c["end"] = corners[(i + 1) % len(corners)]["start"]
+    if len(corners) == 1:
+        corners[0]["end"] = corners[0]["start"]
+    return corners
+
+
 def _seg_time(t: list, a: int, b: int, lap_ms: int) -> float | None:
     """Zeit von Rasterpunkt a bis b (rundum über die Ziellinie)."""
     n = len(t)
@@ -254,7 +374,7 @@ def control_tips(ref: dict, best: dict) -> list[dict]:
     return out
 
 
-def analyze(laps: list[dict]) -> dict:
+def analyze(laps: list[dict], geo: dict | None = None) -> dict:
     """laps: Runden einer Kombination mit trace. Gibt Kurven, Potenzial und Tipps zurück."""
     counting = [l for l in laps if _counting(l)]
     usable = [l for l in counting if _usable(l)]
@@ -282,10 +402,9 @@ def analyze(laps: list[dict]) -> dict:
         l["_t"] = _filled(t, len(t))
     ref = min(usable, key=lambda l: l["lap_time_ms"])
     clean = [l for l in usable if l["lap_time_ms"] <= ref["lap_time_ms"] * CLEAN_FACTOR]
-    v_ref = _filled(ref["trace"]["v"], n)
-    corners = find_corners(v_ref, w=max(1, round(n / 200)))
     length = statistics.median([track_length(l) for l in clean])
     m_per_idx = length / n
+    corners = _corners_from(geo or geometry_lap(usable), ref, n, m_per_idx)
     result.update({"laps_used": len(clean), "ref": {"id": ref["id"], "lap_number": ref.get("lap_number"),
                    "lap_time_ms": ref["lap_time_ms"], "recorded_at": ref.get("recorded_at")},
                    "track_length_m": round(length), "step": ref["trace"].get("step", 1 / n)})
@@ -538,7 +657,7 @@ def _apex_offset(lap: dict, ref: dict, i: int, n: int) -> dict:
     return {"apex_offset_m": round(inner, 1), "apex_point": [round(p1[0], 2), round(p1[1], 2)]}
 
 
-def compare_laps(lap: dict, ref: dict) -> dict:
+def compare_laps(lap: dict, ref: dict, geo: dict | None = None) -> dict:
     """Eine Runde gegen eine Referenzrunde: Verlust je Kurve und Phase, Tipps, Linien."""
     if not (_usable(lap) and _usable(ref)):
         return {"ok": False, "reason": "no_trace"}
@@ -550,7 +669,7 @@ def compare_laps(lap: dict, ref: dict) -> dict:
         if t[0] is None:
             t[0] = 0
         l["_t"] = _filled(t, n)
-    corners = find_corners(_filled(ref["trace"]["v"], n), w=max(1, round(n / 200)))
+    corners = _corners_from(geo, ref, n)
     res: dict[str, Any] = {"ok": True, "lap": {k: lap.get(k) for k in ("id", "lap_number", "lap_time_ms", "recorded_at", "driver")},
                            "ref": {k: ref.get(k) for k in ("id", "lap_number", "lap_time_ms", "recorded_at", "driver")},
                            "delta_ms": lap["lap_time_ms"] - ref["lap_time_ms"], "corners": []}
@@ -705,9 +824,13 @@ SETUP_HINTS = {
 }
 
 
-def handling(laps: list[dict], max_laps: int = 12) -> dict:
-    """Fahrverhalten je Kurve und Phase aus Lenkung, Linie und Tempo (nur Runden mit x/z und Lenkung)."""
-    pool = [l for l in laps if _counting(l) and _usable(l) and l["trace"].get("st") and l["trace"].get("x")]
+def handling(laps: list[dict], max_laps: int = 12, geo: dict | None = None) -> dict:
+    """Fahrverhalten je Kurve und Phase aus Lenkung, Linie und Tempo.
+
+    Braucht Lenkung und entweder Gierrate (Collector ≥ 0.7, auch iRacing) oder x/z-Positionen.
+    Gemessene Querbeschleunigung (ay) wird bevorzugt, sonst aus v²·Krümmung berechnet."""
+    pool = [l for l in laps if _counting(l) and _usable(l) and l["trace"].get("st")
+            and (l["trace"].get("x") or l["trace"].get("yaw"))]
     res: dict[str, Any] = {"ok": False, "laps_used": 0}
     if len(pool) < 3:
         res["reason"] = "too_few_laps"
@@ -723,15 +846,32 @@ def handling(laps: list[dict], max_laps: int = 12) -> dict:
     data = []
     for l in pool:
         l = dict(l, trace=resample(l["trace"], n))
-        k = curvature(l, n)
+        k = path_curvature(l, n)
         st, v = _filled(l["trace"].get("st"), n), _filled(l["trace"].get("v"), n)
         if k is None or st is None or v is None:
             continue
-        data.append({"lap": l, "k": k, "st": st, "v": v, "thr": _filled(l["trace"].get("thr"), n),
-                     "brk": _filled(l["trace"].get("brk"), n)})
+        ay = _filled(l["trace"].get("ay"), n)
+        if ay is not None and sum(x is not None for x in l["trace"]["ay"]) < 0.9 * n:
+            ay = None
+        g = [abs(x) for x in ay] if ay is not None else [(v[i] / 3.6) ** 2 * abs(k[i]) / 9.81 for i in range(n)]
+        t = list(l["trace"]["t"])
+        if t[0] is None:
+            t[0] = 0
+        l["_t"] = _filled(t, n)
+        data.append({"lap": l, "k": k, "st": st, "v": v, "g": g, "measured_g": ay is not None,
+                     "thr": _filled(l["trace"].get("thr"), n), "brk": _filled(l["trace"].get("brk"), n)})
     if len(data) < 3:
         res["reason"] = "too_few_laps"
         return res
+    # Krümmung aus Gierrate und aus x/z haben verschiedene Vorzeichen-Konventionen → nur eine Quelle
+    yaw_laps = [d for d in data if d["lap"]["trace"].get("yaw")]
+    if len(yaw_laps) >= 3 and len(yaw_laps) < len(data):
+        data = yaw_laps
+    elif len(yaw_laps) < 3:
+        for d in data:
+            if d["lap"]["trace"].get("yaw"):
+                d["k"] = curvature(d["lap"], n) or d["k"]
+        data = [d for d in data if d["k"] is not None]
     lag = max(0, round(n / 800))                       # Lenkung kommt ~1 Punkt vor der Linie
     for d in data:
         d["cs"] = set()
@@ -745,7 +885,7 @@ def handling(laps: list[dict], max_laps: int = 12) -> dict:
             j = (i + lag) % n
             kj = d["k"][j]
             if abs(kj) > K_MIN:
-                xs.append((abs(kj), (d["v"][j] / 3.6) ** 2 * abs(kj) / 9.81))
+                xs.append((abs(kj), d["g"][j]))
                 ys.append(sgn * d["st"][i] * sign(kj))
     fit = _ls2(xs, ys)
     if not fit or fit[0] <= 0:
@@ -755,7 +895,7 @@ def handling(laps: list[dict], max_laps: int = 12) -> dict:
     for d in data:
         d["cs"] = _countersteer(d["k"], d["st"], sgn, lag, n)
     ref = data[0]["lap"]
-    corners = find_corners(_filled(ref["trace"]["v"], n), w=max(1, round(n / 200)))
+    corners = _corners_from(geo or geometry_lap(laps), ref, n)
     if len(corners) < 2:
         res["reason"] = "no_corners"
         return res
@@ -765,6 +905,7 @@ def handling(laps: list[dict], max_laps: int = 12) -> dict:
     exit_len = max(4, round(150 / m_per_idx)) if m_per_idx > 0 else n // 25
     out = []
     totals = {(p, kind): [] for p, _ in HANDLING_PHASES for kind in ("under", "over")}
+    costs = {key: 0 for key in totals}
     for ci, c in enumerate(corners):
         b = phase_bounds(ref, c, n)
         a = c["start"]
@@ -773,6 +914,7 @@ def handling(laps: list[dict], max_laps: int = 12) -> dict:
         for key, label in HANDLING_PHASES:
             o1, o2 = segs[key]
             per, cs_laps, cs_thr, cs_brk, cs_fast = [], 0, [], [], []
+            per_lap = []                                    # (Mehr-Lenkung, Gegenlenken?, Kurvenzeit)
             for di, d in enumerate(data):
                 rs, kin, cs = [], [], []
                 for o in range(o1, o2):
@@ -782,13 +924,16 @@ def handling(laps: list[dict], max_laps: int = 12) -> dict:
                     if abs(kj) <= K_MIN:
                         continue
                     stv = sgn * d["st"][i] * sign(kj)
-                    pred = c1 * abs(kj) + c2 * (d["v"][j] / 3.6) ** 2 * abs(kj) / 9.81
+                    pred = c1 * abs(kj) + c2 * d["g"][j]
                     rs.append(stv - pred)
                     kin.append(c1 * abs(kj))
                     if i in d["cs"]:
                         cs.append(i)
                 if len(rs) >= 3:
                     per.append(statistics.mean(rs) / (statistics.mean(kin) + 0.02))
+                    ct = _seg_time(d["lap"]["_t"], c["start"], c["end"], d["lap"]["lap_time_ms"])
+                    if ct is not None and ct > 0:
+                        per_lap.append((per[-1], bool(cs), ct))
                 if cs:
                     cs_laps += 1
                     cs_fast.append(di)
@@ -808,6 +953,9 @@ def handling(laps: list[dict], max_laps: int = 12) -> dict:
                 kind = "under"
             ph = {"key": key, "label": label, "steer_extra": round(resid, 2), "spread": round(spread, 2),
                   "countersteer_laps": cs_laps, "kind": kind}
+            cost = _phase_cost(kind, per_lap)
+            if cost is not None:
+                ph["cost_ms"] = cost
             if cs_thr:
                 ph["countersteer_throttle"] = round(statistics.mean(cs_thr))
             if cs_brk:
@@ -825,9 +973,11 @@ def handling(laps: list[dict], max_laps: int = 12) -> dict:
                     cause = "entry"
                 if ci + 1 not in totals[(cause, kind)]:
                     totals[(cause, kind)].append(ci + 1)
+                costs[(cause, kind)] += max(0, ph.get("cost_ms") or 0)
             phases.append(ph)
         flags = [p for p in phases if p["kind"]]
-        out.append({"no": ci + 1, "apex": round(c["apex"] / n, 4), "phases": phases,
+        out.append({"no": ci + 1, "apex": round(c["apex"] / n, 4), "start": round(c["start"] / n, 4),
+                    "end": round(c["end"] / n, 4), "phases": phases,
                     "text": [_handling_text(p, len(data)) for p in flags]})
     # Gesamtbild: was tritt in mehreren Kurven auf → Setup-Vorschlag
     findings = []
@@ -836,12 +986,30 @@ def handling(laps: list[dict], max_laps: int = 12) -> dict:
             continue
         title, hints = SETUP_HINTS[(key, kind)]
         findings.append({"key": key, "kind": kind, "title": title, "corners": nos,
-                         "weight": len(nos) / len(corners), "hints": hints})
-    findings.sort(key=lambda f: -f["weight"])
+                         "weight": len(nos) / len(corners), "cost_ms": costs[(key, kind)], "hints": hints})
+    # Was am meisten Zeit kostet zuerst; ohne messbare Kosten nach Häufigkeit
+    findings.sort(key=lambda f: (-f["cost_ms"], -f["weight"]))
     res.update({"ok": True, "laps_used": len(data), "model": {"c1": round(c1, 3), "c2": round(c2, 4)},
+                "source": {"curvature": "yaw" if data[0]["lap"]["trace"].get("yaw") else "xz",
+                           "lateral_g": "measured" if all(d["measured_g"] for d in data) else "computed"},
                 "corners": out, "findings": findings,
                 "laps": [{"id": d["lap"]["id"], "lap_time_ms": d["lap"]["lap_time_ms"]} for d in data]})
     return res
+
+
+def _phase_cost(kind: str | None, per_lap: list[tuple[float, bool, float]]) -> int | None:
+    """Was kostet das Problem in dieser Kurve? Runden mit gegen Runden ohne (Übersteuern) bzw.
+    die Hälfte mit der meisten Mehr-Lenkung gegen die mit der wenigsten (Untersteuern)."""
+    if kind == "over":
+        w = [t for _, cs, t in per_lap if cs]
+        wo = [t for _, cs, t in per_lap if not cs]
+        if w and len(wo) >= 2:
+            return round(statistics.mean(w) - statistics.mean(wo))
+    elif kind == "under" and len(per_lap) >= 4:
+        srt = sorted(per_lap, key=lambda x: x[0])
+        h = len(srt) // 2
+        return round(statistics.mean(t for _, _, t in srt[-h:]) - statistics.mean(t for _, _, t in srt[:h]))
+    return None
 
 
 def _handling_text(p: dict, nlaps: int) -> str:
@@ -854,5 +1022,14 @@ def _handling_text(p: dict, nlaps: int) -> str:
         txt = f"{p['label']}: Heck kommt{how} (Gegenlenken in {p['countersteer_laps']} von {nlaps} Runden)"
         if p.get("countersteer_in_fastest") == 0:
             txt += ", in deinen schnellsten Runden nicht"
-        return txt
-    return f"{p['label']}: schiebt über die Vorderräder (du lenkst {round(p['steer_extra'] * 100)} % mehr, als die Kurve verlangt)"
+        return txt + _cost_text(p)
+    return f"{p['label']}: schiebt über die Vorderräder (du lenkst {round(p['steer_extra'] * 100)} % mehr, als die Kurve verlangt)" + _cost_text(p)
+
+
+def _cost_text(p: dict) -> str:
+    c = p.get("cost_ms")
+    if c is None:
+        return ""
+    if c >= 30:
+        return f" – kostet dort etwa {c / 1000:.2f} s".replace(".", ",")
+    return " – kostet dort messbar keine Zeit"

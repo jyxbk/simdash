@@ -241,3 +241,71 @@ def test_handling_under_and_oversteer():
 def test_handling_needs_steering_and_position():
     laps = [make_lap(i, BASE) for i in range(1, 5)]
     assert coach.handling(laps)["ok"] is False
+
+
+def _esses_lap(i=1, with_xz=True, with_yaw=False):
+    """Gerade, dann Links-Rechts-Wechsel ohne Tempo-Spitze dazwischen, dann eine Haarnadel."""
+    import math
+    v = [250.0] * N
+    k = [0.0] * N
+    # Esses bei 40..70: Tempo fällt auf 160 und bleibt, Krümmung erst +, dann −
+    for j in range(36, 76):
+        v[j] = 160.0
+    for j in range(40, 55):
+        k[j] = 1 / 120
+    for j in range(55, 70):
+        k[j] = -1 / 120
+    # Haarnadel bei 140
+    for d in range(-12, 13):
+        v[140 + d] = min(v[140 + d], 70 + 180 * abs(d) / 12)
+    for j in range(134, 147):
+        k[j] = 1 / 40
+    t, acc, x, z, hd, px, pz = [], 0.0, [], [], 0.0, 0.0, 0.0
+    ds = LENGTH / N
+    for j in range(N):
+        t.append(round(acc)); acc += ds / (v[j] / 3.6) * 1000
+        x.append(round(px, 2)); z.append(round(pz, 2))
+        hd += k[j] * ds; px += math.cos(hd) * ds; pz += math.sin(hd) * ds
+    tr = {"step": 1 / N, "t": t, "v": v, "thr": [100] * N, "brk": [0] * N}
+    if with_xz:
+        tr.update(x=x, z=z)
+    if with_yaw:
+        tr["yaw"] = [round(k[j] * v[j] / 3.6, 4) for j in range(N)]
+    return {"id": i, "lap_number": i, "lap_time_ms": round(acc), "valid": True, "estimated": False,
+            "outlap": False, "inlap": False, "recorded_at": f"2026-11-01T10:{i:02d}:00", "trace": tr}
+
+
+def test_detect_corners_splits_esses():
+    lap = _esses_lap()
+    speed_only = coach.find_corners(coach._filled(lap["trace"]["v"], N))
+    cs = coach.detect_corners(lap, N)
+    apexes = sorted(c["apex"] for c in cs)
+    assert len(cs) == len(speed_only) + 1 == 3          # Esses als zwei Kurven
+    assert any(40 <= a < 55 for a in apexes) and any(55 <= a < 70 for a in apexes)
+    assert any(abs(a - 140) <= 3 for a in apexes)
+    # Grenze zwischen den Esses liegt am Richtungswechsel
+    second = next(c for c in cs if 55 <= c["apex"] < 70)
+    assert 52 <= second["start"] <= 58
+
+
+def test_detect_corners_from_yaw_without_positions():
+    lap = _esses_lap(with_xz=False, with_yaw=True)
+    assert len(coach.detect_corners(lap, N)) == 3
+
+
+def test_geometry_lap_prefers_line_and_resolution():
+    a, b = _esses_lap(1), _esses_lap(2, with_xz=False)
+    b["lap_time_ms"] -= 1000                              # schneller, aber ohne Linie
+    assert coach.geometry_lap([a, b])["id"] == 1
+
+
+def test_handling_reports_cost():
+    laps = [_handling_lap(i, counter=[152, 153] if i % 2 else None, noise=0.005) for i in range(1, 7)]
+    for l in laps:                                         # Runden mit Gegenlenken 200 ms langsamer in Kurve 3
+        if l["id"] % 2:
+            t = l["trace"]["t"]
+            l["trace"]["t"] = [x + (200 if k > 155 else 0) for k, x in enumerate(t)]
+            l["lap_time_ms"] += 200
+    r = coach.handling(laps)
+    over = next(f for f in r["findings"] if f["kind"] == "over")
+    assert 150 <= over["cost_ms"] <= 250

@@ -21,21 +21,24 @@ resampled onto the finer grid, so all laps can be compared point by point.
 
 ## 2. Finding corners
 
-Corners are found in the reference lap's speed trace:
+Corners combine two sources:
 
-1. Smooth the trace with a triangle filter (±1 point per 200-point resolution).
-2. Rotate it so it starts at the fastest point, usually the main straight.
-3. Find peaks and valleys with **hysteresis**: speed must fall by at least
-   **12 km/h** and rise again by the same amount. Each valley is a corner
-   apex. The peak before it marks where braking starts.
+1. **Speed minima** (hysteresis 12 km/h) – the braking corners.
+2. **Curvature of the driven line** – from yaw rate ÷ speed (collector ≥ 0.7)
+   or from smoothed x/z positions. Arcs with the same direction, radius
+   < 400 m, at least 50 m long and tightest radius ≤ 300 m count as corners.
+   An arc without a speed minimum gets its own corner (apex = real speed
+   minimum inside the arc, else the tightest point). A speed minimum on a
+   straight right next to an arc is dropped.
 
-A **corner segment** runs from the braking point of this corner to the braking
-point of the next one. The exit and the following straight therefore count
-toward the corner. That is intended, because a better exit gains most of its
-time on the straight.
+Between two apexes the boundary is the speed peak; if speed barely rises
+(< 5 km/h, e.g. esses) it is the straightest point (change of direction).
+Corners are numbered from the finish line.
 
-Flat-out kinks without a 12 km/h dip are not corners. Their time is part of the
-neighbouring segment.
+All analyses of a track use the same **geometry lap** (finest trace with a
+line, fastest of those, any car and driver), so numbers and names match
+everywhere. Names (`/api/corners`) are stored by apex position and matched
+within 1.2 % of a lap.
 
 ## 3. Potential
 
@@ -142,7 +145,11 @@ turn-in, apex and exit (≈150 m) are checked:
   brake ≥ 10 % as oversteer on the brakes.
 
 Findings are grouped by cause and come with generic setup suggestions (GT-style
-cars). It is an estimate: change one thing, drive 5 laps, then pick that
+cars). Each finding carries a **time cost**: for oversteer the corner time of
+laps with countersteer minus laps without; for understeer the half of the laps
+with the most extra steering minus the half with the least. Findings are sorted
+by cost. With collector ≥ 0.7 the measured lateral g and yaw rate are used
+instead of v²·k and x/z, which also makes it work for iRacing. It is an estimate: change one thing, drive 5 laps, then pick that
 session to compare.
 
 ## Limits

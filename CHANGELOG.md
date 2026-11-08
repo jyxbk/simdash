@@ -4,6 +4,24 @@ Server/UI and collector have separate version numbers. The collector version is
 in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 `server/static/index.html`.
 
+## UI 0.13.0 · Collector 0.7.0 — 2026-11-08
+- **Corners from the driven line**: corners now come from speed minima *and*
+  the curvature of the line (yaw rate / speed, or x/z). Esses and chicanes are
+  split at the change of direction, corners without a big speed drop are found
+  (Road Atlanta: 11 instead of 6). Flat-out kinks (R > 300 m or < 50 m long)
+  are ignored.
+- **Same corners everywhere**: one reference lap per track (any car, any
+  driver; finest trace with a line) defines the corners for coach, lap report,
+  handling and session reports, so "corner 7" always means the same corner.
+- **Corner names** (`/api/corners`): name a corner with ✎ (e.g. "T1",
+  "Esses"); stored per track by apex position and shown everywhere.
+- **Handling**: uses measured lateral g and yaw rate when the trace has them
+  (collector 0.7) – then it also works for iRacing. Each finding shows what it
+  costs: laps with countersteer vs. laps without, or the half with the most
+  extra steering vs. the half with the least. Findings are sorted by cost.
+- **Collector 0.7.0**: trace also records lateral g (`ay`) and yaw rate
+  (`yaw`, Kunos `localAngularVel` y at byte 296, iRacing `YawRate`).
+
 ## UI 0.12.0 — 2026-11-08
 - **Handling & setup** (`/api/handling`, analysis tab): from steering and the
   driven line (curvature from x/z, lateral g = v²·k) a model "steering =

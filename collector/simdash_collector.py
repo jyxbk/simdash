@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "0.6.1"
+VERSION = "0.7.0"
 POLL_HZ = 50
 
 log = logging.getLogger("simdash")
@@ -475,11 +475,11 @@ def build_trace(samples: list[tuple]) -> dict | None:
             continue
         if n <= last_n:
             continue
-        pts.append(tuple(smp) + (None,) * (9 - len(smp)))
+        pts.append(tuple(smp) + (None,) * (11 - len(smp)))
         last_n = n
     if len(pts) < 20 or pts[-1][0] - pts[0][0] < 0.5:
         return None
-    keys = ("t", "v", "thr", "brk", "x", "z", "g", "st")
+    keys = ("t", "v", "thr", "brk", "x", "z", "g", "st", "ay", "yaw")
     out = {"step": TRACE_STEP, **{k: [] for k in keys}}
     j = 0
     for i in range(int(round(1 / TRACE_STEP))):
@@ -507,7 +507,9 @@ def build_trace(samples: list[tuple]) -> dict | None:
         near = a if f < 0.5 else b                       # Gang nicht mitteln
         out["g"].append(near[7] if near[7] is not None else None)
         out["st"].append(lerp(8, 1.0, 2) if a[8] is not None and b[8] is not None else None)
-    for k in ("v", "thr", "brk", "x", "z", "g", "st"):
+        out["ay"].append(lerp(9, 1.0, 2) if a[9] is not None and b[9] is not None else None)     # Quer-g
+        out["yaw"].append(lerp(10, 1.0, 3) if a[10] is not None and b[10] is not None else None)  # rad/s
+    for k in ("v", "thr", "brk", "x", "z", "g", "st", "ay", "yaw"):
         if all(x is None for x in out[k]):
             out[k] = None
     return out
@@ -667,8 +669,10 @@ class LapDetector:
                     self.lap_invalid = True
             self.lap_max_current = max(self.lap_max_current, s.current_ms)
             if s.current_ms > 0:
+                te = s.tele or {}
                 self.samples.append((s.npos, s.current_ms, s.speed_kmh, s.throttle, s.brake,
-                                     s.pos_x, s.pos_z, s.gear, (s.tele or {}).get("steer")))
+                                     s.pos_x, s.pos_z, s.gear, te.get("steer"),
+                                     (te.get("g") or [None])[0], te.get("yaw")))
             # Boxenausfahrt liegt meist kurz hinter der Linie -> Boxengasse in der
             # ersten Rundenhälfte = Outlap
             if s.in_pit_lane and s.npos < 0.5:
@@ -799,6 +803,7 @@ def kunos_physics(mapping) -> dict:
         "ti": [_r(v, 0) for v in f(368, 4)] if f(368, 4) else None,
         "tm": [_r(v, 0) for v in f(384, 4)] if f(384, 4) else None,
         "to": [_r(v, 0) for v in f(400, 4)] if f(400, 4) else None,
+        "yaw": _r((f(296, 3) or [None, None])[1], 3),                 # Gierrate rad/s
         "bb": _r((f(564) or [None])[0], 3),
         "max_rpm": i(588),
     }
@@ -1122,7 +1127,7 @@ class IRacingSource(GameSource):
     VARS = ("SessionNum", "IsOnTrack", "IsReplayPlaying", "LapCompleted", "LapLastLapTime",
             "LapBestLapTime", "LapCurrentLapTime", "LapDistPct", "OnPitRoad",
             "PlayerTrackSurface", "PlayerCarMyIncidentCount", "Speed", "Throttle", "Brake",
-            "Gear", "RPM", "LatAccel", "LongAccel", "SteeringWheelAngle", "SteeringWheelAngleMax",
+            "Gear", "RPM", "LatAccel", "LongAccel", "YawRate", "SteeringWheelAngle", "SteeringWheelAngleMax",
             "FuelLevel", "FuelUsePerHour", "WaterTemp", "OilTemp", "OilPress", "dcBrakeBias",
             "dcTractionControl", "dcABS", "BrakeABSactive", "LFbrakeLinePress")
 
@@ -1213,6 +1218,7 @@ class IRacingSource(GameSource):
         t = {
             "g": [_r(-(v("LatAccel", 0.0)) / g0, 2), _r(v("LongAccel", 0.0) / g0, 2)],
             "steer": _r(-sa / (smax / 2), 3) if sa is not None and smax else None,
+            "yaw": _r(v("YawRate", None), 3),
             "steer_deg": int(round(-sa * 57.2958)) if sa is not None else None,
             "fuel": _r(v("FuelLevel", None)), "water": _r(v("WaterTemp", None), 0),
             "oil": _r(v("OilTemp", None), 0), "oil_p": _r(v("OilPress", None), 2),

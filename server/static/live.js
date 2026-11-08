@@ -145,7 +145,7 @@ async function loadLiveCoach() {
     const r = await fetchInsights(last.id);
     if (live.coachId !== last.id) return;
     card.hidden = false;
-    renderInsights($("#lv-coach"), r, { compact: true });
+    renderInsights($("#lv-coach"), r, { compact: true, combo: live.combo });
   } catch (e) { console.error(e); }
 }
 

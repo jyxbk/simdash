@@ -73,6 +73,36 @@ function fmtDuration(ms) {
   return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")}`;
 }
 
+/** Kurvenname (vom Nutzer vergeben) oder „Kurve N“. */
+const cornerLabel = (c) => (c && c.name ? c.name : `Kurve ${c.no}`);
+const cornerShort = (c) => (c && c.name ? c.name : `K${c.no}`);
+
+/** ✎-Knopf: Kurve umbenennen (Name gilt für die Strecke, egal welches Auto). */
+function renameBtn(combo, c) {
+  if (!combo || !c) return null;
+  return h("button", { class: "cn-edit", type: "button", title: "Kurve benennen", "aria-label": `${cornerLabel(c)} benennen`,
+    onclick: (e) => { e.stopPropagation(); renameCorner(combo, c); } }, "✎");
+}
+
+async function renameCorner(combo, c) {
+  const name = prompt(`Name für Kurve ${c.no} (z. B. „T1“ oder „Esses“). Leer lassen = Name löschen.`, c.name || "");
+  if (name === null) return;
+  try {
+    const r = await fetch("/api/corners", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ game: combo.game, track: combo.track, layout: combo.layout || "", npos: c.apex, name: name.trim() }) });
+    if (!r.ok) throw new Error(await r.text());
+  } catch (e) { alert(`Speichern ging nicht: ${e.message}`); return; }
+  refreshCornerViews();
+}
+
+function refreshCornerViews() {
+  if (typeof insCache !== "undefined") insCache.clear();
+  if (typeof coachState !== "undefined" && coachState.c) loadCoach(coachState.c);
+  if (typeof hdState !== "undefined" && hdState.c) loadHandling(hdState.c);
+  if (typeof analysis !== "undefined" && analysis.c && currentTab() === "analyse") renderAnalysis();
+  if (typeof live !== "undefined" && live.combo) { live.coachId = null; loadLiveCoach(); }
+}
+
 const comboKey = (x) => [x.game, x.track, x.layout, x.car].join("␟");
 const isCounting = (l) => l.valid !== false && !l.estimated;   // zählt für die Bestzeit
 const driverParam = () => (state.driver && state.driver !== ALL_DRIVERS ? { driver: state.driver } : {});
@@ -255,7 +285,7 @@ function potentialText(c) {
   if (!hit || hit.potential_ms == null) return "";
   const top = hit.corners.filter((x) => x.gain_ms >= 30).sort((a, b) => b.gain_ms - a.gain_ms)[0];
   if (!top) return "Coach: in jeder Kurve schon am Limit";
-  return [h("b", {}, `−${(hit.potential_ms / 1000).toFixed(2)} s`), ` Potenzial · v. a. Kurve ${top.no}`];
+  return [h("b", {}, `−${(hit.potential_ms / 1000).toFixed(2)} s`), ` Potenzial · v. a. ${cornerLabel(top)}`];
 }
 
 function lapBadges(l, pbId) {
@@ -691,7 +721,7 @@ async function loadLapInsights(sel, ref) {
   try {
     const d = await fetchInsights(sel.id, ref.id);
     if (analysis.insKey !== key) return;
-    renderInsights(box, d, { title: "Coach: was diese Runde gegen die Vergleichsrunde anders macht" });
+    renderInsights(box, d, { title: "Coach: was diese Runde gegen die Vergleichsrunde anders macht", combo: analysis.c });
   } catch (e) { console.error(e); box.replaceChildren(); }
 }
 

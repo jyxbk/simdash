@@ -80,7 +80,7 @@ function insCard(c, rank) {
   });
   return h("article", { class: "coach-card ins-card", "data-corner": c.no },
     h("div", { class: "cc-head" },
-      h("div", {}, rank != null ? h("span", { class: "cc-rank" }, String(rank + 1)) : null, h("b", {}, `Kurve ${c.no}`),
+      h("div", {}, rank != null ? h("span", { class: "cc-rank" }, String(rank + 1)) : null, h("b", {}, cornerLabel(c)), renameBtn(insCombo, c),
         h("span", { class: "muted-sm" }, ` · ${Math.round(c.apex * 100)} % der Runde`)),
       h("div", { class: c.loss_ms >= 0 ? "cc-gain" : "cc-gain gain" }, insSecs(c.loss_ms, 3))),
     c.tips && c.tips.length ? h("ul", { class: "cc-tips" }, c.tips.slice(0, 3).map((t) => h("li", {}, t.text))) : null,
@@ -94,7 +94,9 @@ function insCard(c, rank) {
  * Auswertung in box zeichnen.  opts.compact: nur die 2 größten Baustellen (Live-Tab),
  * opts.title: Überschrift davor.
  */
+let insCombo = null;                  // Kombination der gerade gezeichneten Auswertung (für ✎)
 function renderInsights(box, d, opts = {}) {
+  insCombo = opts.combo || null;
   if (!d) { box.replaceChildren(); return; }
   if (!d.ok) {
     const why = {
@@ -128,12 +130,12 @@ function renderInsights(box, d, opts = {}) {
   const nTop = opts.compact ? 2 : 3;
   const chips = lost.length > nTop || gained.length ? h("div", { class: "chips ins-chips" },
     lost.map((c) => {
-      const b = h("button", { class: "chip loss", type: "button" }, `K${c.no} ${insSecs(c.loss_ms)}`);
+      const b = h("button", { class: "chip loss", type: "button" }, `${cornerShort(c)} ${insSecs(c.loss_ms)}`);
       b.addEventListener("click", () => showCards([c]));
       return b;
     }),
     gained.map((c) => {
-      const b = h("button", { class: "chip gain", type: "button" }, `K${c.no} ${insSecs(c.loss_ms)}`);
+      const b = h("button", { class: "chip gain", type: "button" }, `${cornerShort(c)} ${insSecs(c.loss_ms)}`);
       b.addEventListener("click", () => showCards([c]));
       return b;
     })) : null;

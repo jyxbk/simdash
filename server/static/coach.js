@@ -71,7 +71,7 @@ function renderCoach() {
   const notes = [];
   const shaky = corners.find((c) => c.no === d.least_consistent);
   if (shaky && shaky.spread_ms >= 80) {
-    notes.push(h("li", {}, h("b", {}, `Kurve ${shaky.no}`), ` fährst du am unterschiedlichsten (±${secs(shaky.spread_ms, 2)} von Runde zu Runde). Such dir dort einen festen Bremspunkt, z. B. ein Schild oder einen Randstein.`));
+    notes.push(h("li", {}, h("b", {}, cornerLabel(shaky)), ` fährst du am unterschiedlichsten (±${secs(shaky.spread_ms, 2)} von Runde zu Runde). Such dir dort einen festen Bremspunkt, z. B. ein Schild oder einen Randstein.`));
   }
   if (cons.stdev_ms && cons.laps >= 4 && cons.stdev_ms > 700) {
     notes.push(h("li", {}, `Deine Runden streuen um ±${secs(cons.stdev_ms, 1)}. Erst gleichmäßig werden, dann schneller. Das bringt hier mehr als eine einzelne schnelle Runde.`));
@@ -113,7 +113,7 @@ function coachCard(c, rank) {
   ].filter(Boolean);
   return h("article", { class: `coach-card${coachState.focus === c.no ? " focus" : ""}`, "data-corner": c.no },
     h("div", { class: "cc-head" },
-      h("div", {}, h("span", { class: "cc-rank" }, String(rank + 1)), h("b", {}, `Kurve ${c.no}`),
+      h("div", {}, h("span", { class: "cc-rank" }, String(rank + 1)), h("b", {}, cornerLabel(c)), renameBtn(coachState.c, c),
         h("span", { class: "muted-sm" }, ` · bei ${Math.round(c.apex * 100)} % der Runde`)),
       h("div", { class: "cc-gain" }, `−${secs(c.gain_ms)}`)),
     c.tips.length ? h("ul", { class: "cc-tips" }, c.tips.slice(0, 3).map((t) => h("li", {}, t.text))) : null,
@@ -138,7 +138,7 @@ function coachTable(corners, top) {
       const rm = c.ref_metrics, bm = c.best_metrics, same = c.gain_ms < MIN_GAIN;
       const tr = h("tr", { class: `${topNos.has(c.no) ? "top" : ""}${coachState.focus === c.no ? " focus" : ""}`, "data-corner": c.no, tabindex: 0,
         title: c.tips.length ? c.tips.map((t) => t.text).join(" · ") : "", onclick: () => focusCorner(c.no) },
-        h("td", {}, h("span", { class: "cno" }, String(c.no))),
+        h("td", { class: "cname" }, h("span", { class: "cno" }, String(c.no)), c.name ? h("span", { class: "cn-txt" }, c.name) : null, renameBtn(coachState.c, c)),
         h("td", {}, h("div", { class: "gainbar" },
           h("span", { class: "gtrack" }, h("span", { style: `width:${Math.max(3, (c.gain_ms / maxGain) * 100)}%`, class: same ? "zero" : "" })),
           h("b", { class: "num" }, same ? "✓" : `−${secs(c.gain_ms, 2)}`))),
