@@ -103,6 +103,28 @@ weight for gear and steering. The UI shows the top three.
 - Each corner includes a `history`: segment time, apex speed and braking point
   for every usable lap, in order. The UI shows the last 40.
 
+## 7. Auto insights: one lap against a reference
+
+`GET /api/coach/lap?id=…[&ref_id=…]` compares a single lap with a reference lap
+(default: your PB; if the lap *is* the PB, the previous PB). Corners come from
+the reference lap. Each corner is split into four phases using the reference:
+
+| Phase | From → to |
+|---|---|
+| Braking | start of the corner → two thirds of the speed drop done |
+| Turn-in | → shortly before the apex |
+| Apex | apex ± two grid windows |
+| Exit | → start of the next corner (the straight counts) |
+
+The phase times add up to the corner loss, and the corner losses add up to the
+lap delta. The worst phase gets a sentence (braking point, entry/apex/exit speed,
+full throttle point, or as fallback: where in the phase speed was missing and
+whether you were on full throttle). For the racing line, x/z of both laps around
+the corner is returned, plus the sideways distance at the apex (+ inside,
+− outside), using the reference's curvature to decide which side is inside.
+
+Shown in the live tab after every lap and in the lap comparison.
+
 ## Limits
 
 - **Resolution**: collector 0.6 records a point every 0.125 % of the lap

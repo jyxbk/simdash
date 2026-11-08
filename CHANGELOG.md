@@ -4,6 +4,18 @@ Server/UI and collector have separate version numbers. The collector version is
 in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 `server/static/index.html`.
 
+## UI 0.11.0 — 2026-11-08
+- **Auto insights** (`/api/coach/lap`): any lap against a reference lap (default:
+  your PB; if the lap is the PB, the previous PB), corner by corner. Each corner
+  is split into four phases (braking, turn-in, apex, exit) with the time lost
+  or gained in each, plus a sentence on what differs in the worst phase.
+- **Racing line comparison** per corner (x/z, zoomed to the corner, scale bar,
+  apex marked) and how many metres your line is inside/outside at the apex.
+- Live tab: "Coach · last lap" card after every lap. Lap comparison: the same
+  report for the chosen pair of laps (also against another driver's lap).
+- Coach (analysis tab) also returns the four phases per corner.
+- Traces whose clock does not match the lap time are ignored by the coach.
+
 ## UI 0.10.0 · Collector 0.6.1 — 2026-11-04
 - **Gear and steering** in the lap comparison (charts linked to the other
   charts, values in the tooltip).

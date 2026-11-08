@@ -681,13 +681,26 @@ function gearOf(l) {
   return g.map((v) => { if (v != null && v > 0) last = v; return last; });
 }
 
+/** Auto-Insights im Rundenvergleich: die gewählte Runde Kurve für Kurve gegen die Vergleichsrunde. */
+async function loadLapInsights(sel, ref) {
+  const box = $("#lap-insights");
+  const key = `${sel.id}|${ref.id}`;
+  analysis.insKey = key;
+  if (sel.id === ref.id) { box.replaceChildren(); return; }
+  try {
+    const d = await fetchInsights(sel.id, ref.id);
+    if (analysis.insKey !== key) return;
+    renderInsights(box, d, { title: "Coach: was diese Runde gegen die Vergleichsrunde anders macht" });
+  } catch (e) { console.error(e); box.replaceChildren(); }
+}
+
 function renderAnalysis() {
   const traced = analysis.traced;
   const sel = traced.find((l) => String(l.id) === $("#pick-lap").value);
   const ref = traced.find((l) => String(l.id) === $("#pick-ref").value);
   const body = $("#analysis-body");
   analysis.charts = [];
-  if (!sel || !ref) return;
+  if (!sel || !ref) { $("#lap-insights").replaceChildren(); return; }
   const pbId = analysis.c.best_valid && analysis.c.best_valid.id;
   const refDat = ref.id === pbId ? "deiner Bestzeit" : `Runde ${ref.lap_number}`;   // "im Vergleich zu …"
   const refAkk = ref.id === pbId ? "deine Bestzeit" : `Runde ${ref.lap_number}`;    // "gegen …"
@@ -714,6 +727,7 @@ function renderAnalysis() {
   );
 
   const kids = [tiles];
+  loadLapInsights(sel, ref);
 
   // 0) Streckenkarte (nur Runden mit Positionsdaten, Collector ab 0.3)
   const geo = [sel, ref, ...traced].find((l) => l.trace.x && l.trace.z && l.trace.x.filter((v) => v != null).length > 100) || analysis.geo;

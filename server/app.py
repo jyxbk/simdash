@@ -576,6 +576,58 @@ def coach_view(game: str, track: str, car: str, layout: str = "", driver: str | 
     return coach.analyze(laps)
 
 
+def _lap_with_trace(con: sqlite3.Connection, lap_id: int) -> dict | None:
+    r = con.execute("""SELECT l.*, t.data AS trace FROM laps l LEFT JOIN lap_traces t ON t.uid = l.uid
+                       WHERE l.id=?""", (lap_id,)).fetchone()
+    if not r:
+        return None
+    d = dict(r)
+    tr = d.pop("trace")
+    lap = row_to_lap(d)
+    lap["trace"] = json.loads(tr) if tr else None
+    return lap
+
+
+def _counts(l: dict) -> bool:
+    return l.get("valid") is not False and not l.get("estimated") and not l.get("outlap") and not l.get("inlap")
+
+
+@app.get("/api/coach/lap")
+def coach_lap(id: int, ref_id: int | None = None) -> dict:
+    """Auto-Insights: eine Runde Kurve für Kurve gegen eine Referenz (Phasen, Tipps, Linien).
+
+    Ohne ref_id: deine Bestzeit mit diesem Auto hier. Ist die Runde selbst die Bestzeit, dann
+    die Bestzeit davor (so siehst du, wo die neue PB die Zeit gefunden hat)."""
+    with db() as con:
+        lap = _lap_with_trace(con, id)
+        if not lap:
+            raise HTTPException(404, "Runde nicht gefunden")
+        ref = _lap_with_trace(con, ref_id) if ref_id else None
+    if ref_id and not ref:
+        raise HTTPException(404, "Referenzrunde nicht gefunden")
+    auto = None
+    if ref is None:
+        cand = [l for l in traces(game=lap["game"], track=lap["track"], car=lap["car"], layout=lap["layout"],
+                                  driver=lap.get("driver"), limit=300)
+                if _counts(l) and l["id"] != lap["id"] and coach._usable(l)]
+        faster = [l for l in cand if l["lap_time_ms"] < lap["lap_time_ms"]]
+        if faster:
+            ref, auto = min(faster, key=lambda l: l["lap_time_ms"]), "pb"
+        else:
+            before = [l for l in cand if (l.get("recorded_at") or "") < (lap.get("recorded_at") or "")]
+            pool = before or cand
+            if pool:
+                ref, auto = min(pool, key=lambda l: l["lap_time_ms"]), "previous_pb" if before else "next_best"
+    if ref is None:
+        return {"ok": False, "reason": "no_reference", "lap": {"id": lap["id"], "lap_time_ms": lap["lap_time_ms"]}}
+    if not lap.get("trace"):
+        return {"ok": False, "reason": "no_trace", "lap": {"id": lap["id"], "lap_time_ms": lap["lap_time_ms"]}}
+    out = coach.compare_laps(lap, ref)
+    out["ref_kind"] = auto or "chosen"
+    out["lap_counts"] = _counts(lap)
+    return out
+
+
 @app.get("/api/stats")
 def stats(game: str | None = None, track: str | None = None, car: str | None = None,
           driver: str | None = None) -> dict:

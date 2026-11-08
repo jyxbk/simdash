@@ -28,7 +28,12 @@ def _usable(l: dict) -> bool:
     t, v = tr.get("t") or [], tr.get("v") or []
     if not t or len(v) != len(t):
         return False
-    return sum(x is not None for x in t) / len(t) >= MIN_COVER and sum(x is not None for x in v) / len(v) >= MIN_COVER
+    if sum(x is not None for x in t) / len(t) < MIN_COVER or sum(x is not None for x in v) / len(v) < MIN_COVER:
+        return False
+    # Verlauf muss zur Rundenzeit passen (sonst z. B. zwei Runden in einem Verlauf, Uhr nicht zurückgesetzt)
+    last = next((x for x in reversed(t) if x is not None), None)
+    lap_ms = l.get("lap_time_ms") or 0
+    return last is not None and lap_ms > 0 and 0.85 * lap_ms <= last <= 1.02 * lap_ms
 
 
 def _filled(arr: list | None, n: int) -> list[float] | None:
@@ -316,6 +321,12 @@ def analyze(laps: list[dict]) -> dict:
             e_r, e_b = _seg_time(ref["_t"], a, ap, ref["lap_time_ms"]), _seg_time(best_l["_t"], a, ap, best_l["lap_time_ms"])
             if None not in (e_r, e_b):
                 phase = {"entry_ms": round(e_r - e_b), "exit_ms": round(gain - (e_r - e_b))}
+        phases4 = None
+        if best_l is not ref and len(corners) > 1:
+            bounds = phase_bounds(best_l, c, n)
+            pr, pb = _phase_times(ref, a, bounds, n), _phase_times(best_l, a, bounds, n)
+            phases4 = [{"key": key, "label": label, "ms": round(x - y) if None not in (x, y) else None}
+                       for (key, label), x, y in zip(PHASES, pr, pb)]
         tips = tips_for(rm, bm, n, m_per_idx) if gain >= 30 else []
         # Gang/Lenkung: alte Runden haben das nicht. Fehlt es bei Bestzeit oder Vorbild, vergleichen
         # wir die schnellste neuere Runde mit der schnellsten neueren Fahrt in dieser Kurve.
@@ -343,7 +354,7 @@ def analyze(laps: list[dict]) -> dict:
             "best_lap": {"id": best_l["id"], "lap_number": best_l.get("lap_number"), "lap_time_ms": best_l["lap_time_ms"]},
             "ref_metrics": _round_metrics(rm, c["apex"], n, m_per_idx), "best_metrics": _round_metrics(bm, c["apex"], n, m_per_idx),
             "gear": {"ref": ca.get("gear"), "best": cb.get("gear")} if ca is not None and ca.get("gear") else None,
-            "phase": phase, "tips": tips or _phase_tip(phase, gain),
+            "phase": phase, "phases": phases4, "tips": tips or _phase_tip(phase, gain),
             "history": _history(usable, c, n, m_per_idx, ref["lap_time_ms"] * CLEAN_FACTOR),
         })
     result["corners"] = out
@@ -392,3 +403,212 @@ def _round_metrics(m: dict, apex: int, n: int, m_per_idx: float) -> dict:
     if m.get("full_throttle") is not None:
         out["full_throttle_m"] = max(0, round(_dist(apex, m["full_throttle"], n, m_per_idx)))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Runde gegen Referenz („Auto-Insights“): eine beliebige Runde Kurve für Kurve gegen eine
+# Referenzrunde (Standard: deine Bestzeit), aufgeteilt in Anbremsen, Einlenken, Scheitel, Ausgang.
+# ---------------------------------------------------------------------------
+PHASES = (("brake", "Anbremsen"), ("turnin", "Einlenken"), ("apex", "Scheitel"), ("exit", "Ausgang"))
+
+
+def phase_bounds(ref: dict, c: dict, n: int) -> list[int]:
+    """Grenzen der 4 Phasen als Abstände (Rasterpunkte) ab Kurvenbeginn, aus der Referenzrunde.
+
+    Anbremsen bis der größte Teil des Tempos abgebaut ist, Einlenken bis kurz vorm Scheitel, Scheitel ±2 Fenster,
+    Ausgang bis zum Ende der Kurve (Gerade danach zählt mit)."""
+    q = max(1, round(n / 200))
+    w = 2 * q
+    a = c["start"]
+    span = (c["end"] - a) % n or n
+    v = _filled(ref["trace"].get("v"), n)
+    win = [(c["apex"] + d) % n for d in range(-4 * q, 4 * q + 1)]
+    o_ap = (min(win, key=lambda i: v[i]) - a) % n if v else (c["apex"] - a) % n
+    o_ap = min(max(o_ap, 1), span - 1)
+    # Anbremsen = Kurvenbeginn bis 2/3 des Tempoabbaus geschafft sind (klappt auch ohne Pedaldaten
+    # und bei Trailbraking, wo die Bremse erst am Scheitel ganz loslässt)
+    o_rel = (o_ap - w) // 2
+    if v:
+        v0, vmin = max(v[(a + k) % n] for k in range(o_ap + 1)), v[(a + o_ap) % n]
+        thr_v = vmin + (v0 - vmin) / 3
+        o_rel = next((k for k in range(o_ap + 1) if v[(a + k) % n] <= thr_v), o_rel)
+    b = [0, o_rel, o_ap - w, o_ap + w, span]
+    b[1] = min(max(b[1], 0), max(0, o_ap - w))
+    b[2] = max(b[2], b[1])
+    b[3] = min(max(b[3], b[2]), span)
+    return b
+
+
+def _phase_times(lap: dict, a: int, bounds: list[int], n: int) -> list[float | None]:
+    out = []
+    for o1, o2 in zip(bounds, bounds[1:]):
+        if o2 <= o1:
+            out.append(0.0)
+        else:
+            out.append(_seg_time(lap["_t"], (a + o1) % n, (a + o2) % n, lap["lap_time_ms"]))
+    return out
+
+
+def _line(lap: dict, a: int, o1: int, o2: int, n: int, maxpts: int = 90) -> list[list[float]] | None:
+    """x/z-Punkte der Runde zwischen zwei Abständen ab Kurvenbeginn (für den Linienvergleich)."""
+    x, z = lap["trace"].get("x"), lap["trace"].get("z")
+    if not x or not z or len(x) != n or len(z) != n:
+        return None
+    step = max(1, (o2 - o1) // maxpts)
+    pts = []
+    for o in range(o1, o2 + 1, step):
+        i = (a + o) % n
+        if x[i] is not None and z[i] is not None:
+            pts.append([round(x[i], 2), round(z[i], 2)])
+    return pts if len(pts) >= 5 else None
+
+
+def _phase_text(key: str, lm: dict, rm: dict, n: int, m_per_idx: float) -> str | None:
+    """Ein Satz, was in der Phase mit dem größten Verlust anders ist als bei der Referenz."""
+    if key == "brake":
+        db = _dist(lm.get("brake"), rm.get("brake"), n, m_per_idx)
+        if db is not None and db >= 5:
+            return f"Du bremst {round(db)} m früher als die Referenz"
+        if db is not None and db <= -5:
+            return f"Du bremst {round(-db)} m später, verlierst aber danach: zu spät oder zu stark angebremst"
+        if lm.get("brake_max") and rm.get("brake_max") and lm["brake_max"] < rm["brake_max"] - 10:
+            return f"Du bremst weniger hart ({lm['brake_max']} statt {rm['brake_max']} %) und dafür länger"
+        dv = rm["v_entry"] - lm["v_entry"]
+        if dv >= 3:
+            return f"Du kommst mit {round(dv)} km/h weniger an"
+    elif key in ("turnin", "apex"):
+        dv = rm["v_min"] - lm["v_min"]
+        if dv >= 2:
+            return f"Dein Scheiteltempo ist {round(dv)} km/h niedriger ({lm['v_min']:.0f} statt {rm['v_min']:.0f} km/h)"
+        if dv <= -3:
+            return f"Du bist am Scheitel {round(-dv)} km/h schneller, aber verlierst: zu viel Tempo reingetragen, Linie leidet"
+    elif key == "exit":
+        dthr = _dist(rm.get("full_throttle"), lm.get("full_throttle"), n, m_per_idx)
+        dv = rm["v_exit"] - lm["v_exit"]
+        if dthr is not None and dthr >= 5:
+            return f"Du gehst {round(dthr)} m später voll aufs Gas" + (f", {round(dv)} km/h weniger am Ausgang" if dv >= 2 else "")
+        if dv >= 2:
+            return f"Dein Ausgangstempo ist {round(dv)} km/h niedriger"
+    return None
+
+
+def _phase_fallback(lap: dict, ref: dict, a: int, bounds: list[int], k: int, n: int, m_per_idx: float, apex: int) -> str | None:
+    """Ohne klares Merkmal: wo in der Phase fehlt am meisten Tempo, und bist du voll am Gas?"""
+    vl, vr = _filled(lap["trace"].get("v"), n), _filled(ref["trace"].get("v"), n)
+    tl, tr = _filled(lap["trace"].get("thr"), n), _filled(ref["trace"].get("thr"), n)
+    idx = [(a + o) % n for o in range(bounds[k], bounds[k + 1] + 1)]
+    if not idx or vl is None or vr is None:
+        return None
+    worst = max(idx, key=lambda i: vr[i] - vl[i])
+    dv = vr[worst] - vl[worst]
+    parts = []
+    if tl is not None and tr is not None:
+        al, ar = sum(tl[i] for i in idx) / len(idx), sum(tr[i] for i in idx) / len(idx)
+        if ar - al >= 8:
+            parts.append(f"weniger Gas als die Referenz (Ø {al:.0f} statt {ar:.0f} %)")
+    if dv >= 2:
+        where = round(_dist(apex, worst, n, m_per_idx) or 0)
+        pos = f"{where} m nach dem Scheitel" if where >= 0 else f"{-where} m vor dem Scheitel"
+        parts.append(f"bis zu {round(dv)} km/h langsamer ({pos})")
+    if not parts:
+        return None
+    label = dict(PHASES)[PHASES[k][0]]
+    return f"{label}: " + ", ".join(parts)
+
+
+def _apex_offset(lap: dict, ref: dict, i: int, n: int) -> dict:
+    """Seitlicher Abstand deiner Linie zur Referenz am Scheitel: + = weiter innen, − = weiter außen."""
+    def xy(l, k):
+        x, z = l["trace"].get("x"), l["trace"].get("z")
+        return (x[k % n], z[k % n]) if x and z and x[k % n] is not None and z[k % n] is not None else None
+    d = max(2, round(n / 100))
+    p0, p1, p2, me = xy(ref, i - d), xy(ref, i), xy(ref, i + d), xy(lap, i)
+    if None in (p0, p1, p2, me):
+        return {}
+    tx, tz = p2[0] - p0[0], p2[1] - p0[1]
+    norm = (tx * tx + tz * tz) ** 0.5
+    if norm < 1e-6:
+        return {}
+    # Seite der Kurve aus der Krümmung der Referenz, Abstand senkrecht zur Fahrtrichtung
+    turn = (p1[0] - p0[0]) * (p2[1] - p1[1]) - (p1[1] - p0[1]) * (p2[0] - p1[0])
+    side = ((me[0] - p1[0]) * tz - (me[1] - p1[1]) * tx) / norm
+    if abs(turn) < 1e-6:
+        return {}
+    inner = -side if turn > 0 else side
+    return {"apex_offset_m": round(inner, 1), "apex_point": [round(p1[0], 2), round(p1[1], 2)]}
+
+
+def compare_laps(lap: dict, ref: dict) -> dict:
+    """Eine Runde gegen eine Referenzrunde: Verlust je Kurve und Phase, Tipps, Linien."""
+    if not (_usable(lap) and _usable(ref)):
+        return {"ok": False, "reason": "no_trace"}
+    lap, ref = dict(lap), dict(ref)
+    n = max(len(lap["trace"]["t"]), len(ref["trace"]["t"]))
+    for l in (lap, ref):
+        l["trace"] = resample(l["trace"], n)
+        t = list(l["trace"]["t"])
+        if t[0] is None:
+            t[0] = 0
+        l["_t"] = _filled(t, n)
+    corners = find_corners(_filled(ref["trace"]["v"], n), w=max(1, round(n / 200)))
+    res: dict[str, Any] = {"ok": True, "lap": {k: lap.get(k) for k in ("id", "lap_number", "lap_time_ms", "recorded_at", "driver")},
+                           "ref": {k: ref.get(k) for k in ("id", "lap_number", "lap_time_ms", "recorded_at", "driver")},
+                           "delta_ms": lap["lap_time_ms"] - ref["lap_time_ms"], "corners": []}
+    if len(corners) < 2:
+        return res
+    for k, c in enumerate(corners):
+        c["end"] = corners[(k + 1) % len(corners)]["start"]
+    m_per_idx = track_length(ref) / n
+    res["track_length_m"] = round(m_per_idx * n)
+    q = max(1, round(n / 200))
+    for k, c in enumerate(corners):
+        a = c["start"]
+        tl, tr = _seg_time(lap["_t"], a, c["end"], lap["lap_time_ms"]), _seg_time(ref["_t"], a, c["end"], ref["lap_time_ms"])
+        if tl is None or tr is None:
+            continue
+        bounds = phase_bounds(ref, c, n)
+        pl, pr = _phase_times(lap, a, bounds, n), _phase_times(ref, a, bounds, n)
+        phases = [{"key": key, "label": label, "ms": round(x - y) if None not in (x, y) else None}
+                  for (key, label), x, y in zip(PHASES, pl, pr)]
+        lm, rm = _metrics(lap, c, n), _metrics(ref, c, n)
+        loss = tl - tr
+        tips: list[dict] = []
+        main = None
+        if loss >= 30:
+            known = [p for p in phases if p["ms"] is not None]
+            main = max(known, key=lambda p: p["ms"]) if known else None
+            pt = _phase_text(main["key"], lm, rm, n, m_per_idx) if main and main["ms"] > 0 else None
+            if not pt and main and main["ms"] > 0:
+                pt = _phase_fallback(lap, ref, a, bounds, PHASES.index(next(x for x in PHASES if x[0] == main["key"])), n, m_per_idx, c["apex"])
+            if pt:
+                tips.append({"kind": f"phase_{main['key']}", "score": 99, "text": pt})
+            same = {"brake": {"brake_later", "brake_earlier", "entry_speed"}, "turnin": {"carry_speed"},
+                    "apex": {"carry_speed"}, "exit": {"throttle_earlier", "better_exit"}}
+            skip = same.get(main["key"], set()) if tips and main else set()
+            tips += [t for t in tips_for(lm, rm, n, m_per_idx) + control_tips(lm, rm) if t["kind"] not in skip]
+        span = bounds[-1]
+        mi = lambda m: max(1, round(m / m_per_idx)) if m_per_idx > 0 else 4 * q
+        o_end = min(span, bounds[3] + mi(120))          # Kurve plus ~120 m Ausgang, nicht die ganze Gerade
+        o_start = max(0, bounds[1] - mi(80))            # ~80 m vor Ende des Anbremsens
+        line = None
+        ll, lr = _line(lap, a, o_start, o_end, n), _line(ref, a, o_start, o_end, n)
+        if ll and lr:
+            line = {"lap": ll, "ref": lr, **_apex_offset(lap, ref, (a + (bounds[2] + bounds[3]) // 2) % n, n)}
+        res["corners"].append({
+            "no": k + 1, "start": round(a / n, 4), "apex": round(c["apex"] / n, 4), "end": round(c["end"] / n, 4),
+            "lap_ms": round(tl), "ref_ms": round(tr), "loss_ms": round(loss), "phases": phases,
+            "main_phase": main["key"] if main and main["ms"] > 0 else None, "tips": tips[:3],
+            "lap_metrics": _round_metrics(lm, c["apex"], n, m_per_idx), "ref_metrics": _round_metrics(rm, c["apex"], n, m_per_idx),
+            "line": line,
+        })
+    lost = sorted((c for c in res["corners"] if c["loss_ms"] >= 30), key=lambda c: -c["loss_ms"])
+    res["problems"] = [c["no"] for c in lost]
+    res["gained"] = [c["no"] for c in sorted(res["corners"], key=lambda c: c["loss_ms"]) if c["loss_ms"] <= -30]
+    # Summe je Phase über die ganze Runde: wo verlierst du generell (Bremsen? Ausgänge?)
+    tot = {key: 0 for key, _ in PHASES}
+    for c in res["corners"]:
+        for p in c["phases"]:
+            if p["ms"] is not None:
+                tot[p["key"]] += p["ms"]
+    res["phase_totals"] = [{"key": key, "label": label, "ms": tot[key]} for key, label in PHASES]
+    return res

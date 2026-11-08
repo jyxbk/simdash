@@ -83,7 +83,7 @@ function onLive(msg) {
 
   const combo = { game: d.game, track: d.track, layout: d.layout || "", car: d.car };
   if (!live.combo || comboKey(live.combo) !== comboKey(combo)) {
-    live.combo = combo; live.pb = null; live.geo = null; live.rows = new Set(); live.pbSectors = null; live.map = null; live.laps = [];
+    live.combo = combo; live.pb = null; live.geo = null; live.rows = new Set(); live.pbSectors = null; live.map = null; live.laps = []; live.coachId = null; $("#lv-coach-card").hidden = true;
     $("#lv-map").replaceChildren();
     loadPb();
     loadLaps();
@@ -127,6 +127,23 @@ async function loadLaps() {
     if (live.combo !== c) return;
     live.laps = laps;
     renderLaps();
+    loadLiveCoach();
+  } catch (e) { console.error(e); }
+}
+
+/** Coach nach jeder Runde: neueste Runde dieser Session gegen die Bestzeit (Auto-Insights). */
+async function loadLiveCoach() {
+  const d = live.data, card = $("#lv-coach-card");
+  const last = d && live.laps.filter((l) => l.session_uid && l.session_uid === d.session_uid && l.has_trace)
+    .sort((a, b) => b.recorded_at.localeCompare(a.recorded_at))[0];
+  if (!last) { card.hidden = true; live.coachId = null; return; }
+  if (live.coachId === last.id) return;
+  live.coachId = last.id;
+  try {
+    const r = await fetchInsights(last.id);
+    if (live.coachId !== last.id) return;
+    card.hidden = false;
+    renderInsights($("#lv-coach"), r, { compact: true });
   } catch (e) { console.error(e); }
 }
 

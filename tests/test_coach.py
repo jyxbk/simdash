@@ -130,3 +130,58 @@ def test_no_controls_no_control_tips():
     other = make_lap(2, [(30, 80, 10), (90, 145, 8), (150, 70, 12)])
     k2 = next(c for c in coach.analyze([pb, other])["corners"] if abs(c["apex"] - 90 / N) < 0.02)
     assert k2["gear"] is None and not {t["kind"] for t in k2["tips"]} & {"gear_higher", "gear_lower", "steer_calmer", "less_lock"}
+
+
+def _with_line(lap, offset=0.0):
+    import math
+    lap["trace"]["x"] = [round(math.cos(2 * math.pi * i / N) * 600 + offset, 2) for i in range(N)]
+    lap["trace"]["z"] = [round(math.sin(2 * math.pi * i / N) * 600, 2) for i in range(N)]
+    return lap
+
+
+def test_compare_laps_phases_and_tips():
+    ref = _with_line(make_lap(1, BASE))
+    slow = _with_line(make_lap(2, [(30, 90, 10), (90, 125, 8), (150, 70, 12)]), offset=1.5)  # Kurve 2 langsamer
+    r = coach.compare_laps(slow, ref)
+    assert r["ok"] and r["delta_ms"] > 100
+    k2 = next(c for c in r["corners"] if abs(c["apex"] - 90 / N) < 0.02)
+    assert k2["loss_ms"] > 100 and r["problems"][0] == k2["no"]
+    assert [p["key"] for p in k2["phases"]] == ["brake", "turnin", "apex", "exit"]
+    assert abs(sum(p["ms"] for p in k2["phases"]) - k2["loss_ms"]) <= 2      # Phasen ergeben den Kurvenverlust
+    assert k2["tips"] and "Scheitel" in " ".join(t["text"] for t in k2["tips"])
+    assert k2["line"] and len(k2["line"]["lap"]) >= 5
+    assert sum(p["ms"] for p in r["phase_totals"]) == sum(sum(p["ms"] for p in c["phases"]) for c in r["corners"])
+
+
+def test_phase_text_brake_and_exit():
+    lm = {"brake": 40.0, "v_entry": 250, "v_min": 90, "v_exit": 150, "full_throttle": 60.0}
+    rm = {"brake": 44.0, "v_entry": 250, "v_min": 90, "v_exit": 156, "full_throttle": 56.0}
+    assert "früher" in coach._phase_text("brake", lm, rm, N, 20.0)
+    assert "später voll aufs Gas" in coach._phase_text("exit", lm, rm, N, 20.0)
+
+
+def test_compare_laps_without_trace():
+    ref = make_lap(1, BASE)
+    bad = make_lap(2, BASE)
+    bad["trace"] = {"t": [], "v": []}
+    assert coach.compare_laps(bad, ref)["ok"] is False
+
+
+def test_analyze_has_four_phases():
+    pb = make_lap(1, [(30, 90, 10), (90, 130, 8), (150, 70, 12)])
+    other = make_lap(2, [(30, 80, 10), (90, 145, 8), (150, 70, 12)])
+    r = coach.analyze([pb, other])
+    k2 = next(c for c in r["corners"] if abs(c["apex"] - 90 / N) < 0.02)
+    assert k2["phases"] and len(k2["phases"]) == 4
+
+
+def test_apex_offset_inside_outside():
+    import math
+    def ring(r, cw=False):
+        sgn = -1 if cw else 1
+        return {"trace": {"x": [math.cos(2 * math.pi * i / N) * r for i in range(N)],
+                          "z": [sgn * math.sin(2 * math.pi * i / N) * r for i in range(N)]}}
+    for cw in (False, True):
+        ref = ring(600, cw)
+        assert coach._apex_offset(ring(598, cw), ref, 50, N)["apex_offset_m"] == 2.0     # innen
+        assert coach._apex_offset(ring(603, cw), ref, 50, N)["apex_offset_m"] == -3.0    # außen

@@ -574,7 +574,8 @@ footer a { color: var(--series-1); text-decoration: none; }
     "clock   delta   tiles"
     "map     trace   inputs"
     "map     sectors inputs"
-    "tyres   laps    vehicle"; }
+    "tyres   laps    vehicle"
+    "coach   coach   coach"; }
 .a-clock { grid-area: clock; } .a-delta { grid-area: delta; } .a-tiles { grid-area: tiles; }
 .a-map { grid-area: map; display: flex; flex-direction: column; } .a-trace { grid-area: trace; }
 .a-sectors { grid-area: sectors; } .a-inputs { grid-area: inputs; } .a-tyres { grid-area: tyres; }
@@ -651,7 +652,7 @@ footer a { color: var(--series-1); text-decoration: none; }
 /* Tablet: zwei Spalten */
 @media (max-width: 1279px) {
   .lv-grid { grid-template-columns: 1fr 1fr;
-    grid-template-areas: "clock delta" "tiles tiles" "map inputs" "map sectors" "trace trace" "tyres vehicle" "laps laps"; }
+    grid-template-areas: "clock delta" "tiles tiles" "map inputs" "map sectors" "trace trace" "tyres vehicle" "laps laps" "coach coach"; }
   .lv-tiles { grid-template-columns: repeat(4, 1fr); }
   .lv-map { min-height: 280px; }
 }
@@ -662,7 +663,7 @@ footer a { color: var(--series-1); text-decoration: none; }
   .live-head { flex-wrap: wrap; gap: .3rem; }
   .live-sub { display: none; }
   .lv-grid { gap: .4rem; grid-template-columns: 1fr 1fr;
-    grid-template-areas: "clock delta" "tiles tiles" "inputs inputs" "map map" "sectors sectors" "tyres tyres" "vehicle vehicle" "trace trace" "laps laps"; }
+    grid-template-areas: "clock delta" "tiles tiles" "inputs inputs" "map map" "sectors sectors" "coach coach" "tyres tyres" "vehicle vehicle" "trace trace" "laps laps"; }
   .lv-card { padding: .5rem .55rem; }
   .lv-time { font-size: 1.9rem; }
   .lv-delta-val { font-size: 1.8rem; }
@@ -874,3 +875,36 @@ svg.mini .reflabel { fill: var(--good); font-size: 10.5px; font-weight: 600; }
 .xy.small { height: 120px; }
 .dd-remember { display: flex; align-items: flex-start; gap: .4rem; font-size: .84rem; color: var(--text-secondary); margin: .5rem 0; }
 .dd-remember[hidden] { display: none; }
+
+/* Auto-Insights (Runde gegen Referenz) */
+.ins-head { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; flex-wrap: wrap; margin: .2rem 0 .5rem; font-variant-numeric: tabular-nums; }
+.ins-delta.loss { color: var(--loss); font-weight: 700; } .ins-delta.gain { color: var(--gain); font-weight: 700; }
+.ins-pb { background: var(--good); color: #fff; border-radius: 999px; padding: .1rem .6rem; font-size: .78rem; font-weight: 700; }
+.ins-sum { margin-bottom: .5rem; }
+.ph-cells { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; }
+.ph-cell { background: var(--grid); border-radius: 6px; padding: .25rem .35rem; display: flex; flex-direction: column; min-width: 0; border-top: 3px solid transparent; }
+.ph-cell span { font-size: .66rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ph-cell b { font-size: .82rem; font-variant-numeric: tabular-nums; }
+.ph-cell.loss { border-top-color: var(--loss); } .ph-cell.loss b { color: var(--loss); }
+.ph-cell.gain { border-top-color: var(--gain); } .ph-cell.gain b { color: var(--gain); }
+.ph-cell.even b { color: var(--text-secondary); }
+.cc-gain.gain { color: var(--gain); }
+.ins-chips { margin: .3rem 0 .1rem; flex-wrap: wrap; }
+.ins-chips .chip.loss { border-color: color-mix(in srgb, var(--loss) 55%, transparent); }
+.ins-chips .chip.gain { border-color: color-mix(in srgb, var(--gain) 55%, transparent); }
+.ins-card { display: flex; flex-direction: column; gap: .45rem; }
+.ins-line { width: 100%; max-width: 320px; height: auto; display: block; background: var(--surface-1); border-radius: 8px; margin: .2rem auto 0; }
+.ins-line polyline { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.ln-ref { stroke: var(--series-2); stroke-width: 3; }
+.ln-lap { stroke: var(--gain); stroke-width: 2; }
+.ln-start { fill: var(--text-primary); }
+.ln-scale { stroke: var(--text-muted); stroke-width: 1.5; }
+.ln-scale-t { fill: var(--text-muted); font-size: 10px; }
+.ln-k { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: .3rem; vertical-align: middle; }
+.ln-k.lap { background: var(--gain); } .ln-k.ref { background: var(--series-2); }
+#lap-insights { margin: .6rem 0 .4rem; }
+#lap-insights:empty { display: none; }
+.a-coach { grid-area: coach; }
+.a-coach .coach-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 760px) { .a-coach .coach-cards { grid-template-columns: 1fr; } }
+.ln-apex { fill: none; stroke: var(--text-primary); stroke-width: 1.5; }

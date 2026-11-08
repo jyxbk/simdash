@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>SimDash</title>
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/style.css?v=0.10.0">
+  <link rel="stylesheet" href="/static/style.css?v=0.11.0">
 </head>
 <body class="viz-root" data-palette="#3987e5">
   <header class="topbar">
@@ -111,6 +111,7 @@
           <label>gegen <select id="pick-ref"></select></label>
         </div>
       </div>
+      <div id="lap-insights" aria-live="polite"></div>
       <div id="analysis-body"></div>
     </section>
 
@@ -199,6 +200,11 @@
         <div class="subchart-title">Runden dieser Session</div>
         <div class="lv-laps" id="lv-laps"></div>
       </div>
+
+      <div class="lv-card a-coach" id="lv-coach-card" hidden>
+        <div class="subchart-title">Coach · letzte Runde</div>
+        <div id="lv-coach"></div>
+      </div>
     </div>
   </main>
 
@@ -236,9 +242,10 @@
     </div>
   </template>
 
-  <script src="/static/app.js?v=0.10.0"></script>
-  <script src="/static/coach.js?v=0.10.0"></script>
-  <script src="/static/progress.js?v=0.10.0"></script>
-  <script src="/static/live.js?v=0.10.0"></script>
+  <script src="/static/app.js?v=0.11.0"></script>
+  <script src="/static/coach.js?v=0.11.0"></script>
+  <script src="/static/progress.js?v=0.11.0"></script>
+  <script src="/static/insights.js?v=0.11.0"></script>
+  <script src="/static/live.js?v=0.11.0"></script>
 </body>
 </html>
