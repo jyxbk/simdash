@@ -628,6 +628,18 @@ def coach_lap(id: int, ref_id: int | None = None) -> dict:
     return out
 
 
+@app.get("/api/handling")
+def handling_view(game: str, track: str, car: str, layout: str = "", driver: str | None = None,
+                  session_uid: str | None = None) -> dict:
+    """Fahrverhalten/Setup-Diagnose: wo das Auto schiebt oder das Heck kommt (braucht Lenkung + x/z).
+
+    session_uid: nur diese Session (z. B. um eine Setup-Änderung zu prüfen)."""
+    laps = traces(game=game, track=track, car=car, layout=layout, driver=driver, limit=300)
+    if session_uid:
+        laps = [l for l in laps if l.get("session_uid") == session_uid]
+    return coach.handling(laps)
+
+
 @app.get("/api/stats")
 def stats(game: str | None = None, track: str | None = None, car: str | None = None,
           driver: str | None = None) -> dict:

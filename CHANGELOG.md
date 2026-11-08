@@ -4,6 +4,21 @@ Server/UI and collector have separate version numbers. The collector version is
 in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 `server/static/index.html`.
 
+## UI 0.12.0 — 2026-11-08
+- **Handling & setup** (`/api/handling`, analysis tab): from steering and the
+  driven line (curvature from x/z, lateral g = v²·k) a model "steering =
+  c1·k + c2·g" is fitted over the best 12 clean laps. Per corner and phase
+  (turn-in, apex, exit): clearly more steering than the model → understeer;
+  real countersteer (not at direction changes, ≥2 points or ≥8 %) in at least a
+  quarter of the laps → oversteer, split by cause (on throttle / on the brakes).
+  Findings that repeat across corners come with setup suggestions; each can be
+  copied into the setup notes. Can be limited to one session to check a change.
+  Needs steering + position (collector ≥ 0.6; AC EVO, ACC, AC – not iRacing).
+- **Fuel calculator** (live tab): race length in minutes or laps, lap time,
+  consumption, reserve, fuel in tank → fuel needed, laps, how much to add.
+  Consumption is measured at every finish line (median of the last 5 laps),
+  otherwise taken from the game. Inputs are remembered per track and car.
+
 ## UI 0.11.0 — 2026-11-08
 - **Auto insights** (`/api/coach/lap`): any lap against a reference lap (default:
   your PB; if the lap is the PB, the previous PB), corner by corner. Each corner

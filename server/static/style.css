@@ -575,7 +575,8 @@ footer a { color: var(--series-1); text-decoration: none; }
     "map     trace   inputs"
     "map     sectors inputs"
     "tyres   laps    vehicle"
-    "coach   coach   coach"; }
+    "coach   coach   coach"
+    "fuel    fuel    fuel"; }
 .a-clock { grid-area: clock; } .a-delta { grid-area: delta; } .a-tiles { grid-area: tiles; }
 .a-map { grid-area: map; display: flex; flex-direction: column; } .a-trace { grid-area: trace; }
 .a-sectors { grid-area: sectors; } .a-inputs { grid-area: inputs; } .a-tyres { grid-area: tyres; }
@@ -652,7 +653,7 @@ footer a { color: var(--series-1); text-decoration: none; }
 /* Tablet: zwei Spalten */
 @media (max-width: 1279px) {
   .lv-grid { grid-template-columns: 1fr 1fr;
-    grid-template-areas: "clock delta" "tiles tiles" "map inputs" "map sectors" "trace trace" "tyres vehicle" "laps laps" "coach coach"; }
+    grid-template-areas: "clock delta" "tiles tiles" "map inputs" "map sectors" "trace trace" "tyres vehicle" "laps laps" "coach coach" "fuel fuel"; }
   .lv-tiles { grid-template-columns: repeat(4, 1fr); }
   .lv-map { min-height: 280px; }
 }
@@ -663,7 +664,7 @@ footer a { color: var(--series-1); text-decoration: none; }
   .live-head { flex-wrap: wrap; gap: .3rem; }
   .live-sub { display: none; }
   .lv-grid { gap: .4rem; grid-template-columns: 1fr 1fr;
-    grid-template-areas: "clock delta" "tiles tiles" "inputs inputs" "map map" "sectors sectors" "coach coach" "tyres tyres" "vehicle vehicle" "trace trace" "laps laps"; }
+    grid-template-areas: "clock delta" "tiles tiles" "inputs inputs" "map map" "sectors sectors" "coach coach" "fuel fuel" "tyres tyres" "vehicle vehicle" "trace trace" "laps laps"; }
   .lv-card { padding: .5rem .55rem; }
   .lv-time { font-size: 1.9rem; }
   .lv-delta-val { font-size: 1.8rem; }
@@ -908,3 +909,34 @@ svg.mini .reflabel { fill: var(--good); font-size: 10.5px; font-weight: 600; }
 .a-coach .coach-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (max-width: 760px) { .a-coach .coach-cards { grid-template-columns: 1fr; } }
 .ln-apex { fill: none; stroke: var(--text-primary); stroke-width: 1.5; }
+
+/* Fahrverhalten & Setup */
+#handling { --under: #3987e5; --over: #d95926; }
+.hd-pick { margin: .4rem 0 .2rem; font-size: .85rem; color: var(--text-secondary); }
+.hd-card.under { border-top: 3px solid var(--under); } .hd-card.over { border-top: 3px solid var(--over); }
+.hd-badge { font-size: .72rem; border-radius: 999px; padding: .1rem .5rem; font-weight: 700; white-space: nowrap; }
+.hd-badge.under { background: color-mix(in srgb, var(--under) 25%, transparent); color: var(--text-primary); }
+.hd-badge.over { background: color-mix(in srgb, var(--over) 25%, transparent); color: var(--text-primary); }
+.hd-hints li { display: flex; justify-content: space-between; gap: .4rem; align-items: baseline; }
+.hd-note { background: none; border: 1px solid var(--border); color: var(--text-secondary); border-radius: 6px; font-size: .7rem; padding: .05rem .35rem; cursor: pointer; white-space: nowrap; }
+.hd-note:hover { color: var(--text-primary); }
+.hd-table { border-collapse: collapse; font-size: .84rem; font-variant-numeric: tabular-nums; margin: .3rem 0; }
+.hd-table th, .hd-table td { padding: .3rem .6rem; text-align: left; border-bottom: 1px solid var(--grid); }
+.hd-table th { color: var(--text-secondary); font-weight: 600; font-size: .74rem; }
+.hd-cell { color: var(--text-muted); }
+.hd-cell.under { color: var(--text-primary); background: color-mix(in srgb, var(--under) 22%, transparent); }
+.hd-cell.over { color: var(--text-primary); background: color-mix(in srgb, var(--over) 25%, transparent); }
+
+/* Sprit-Rechner */
+.a-fuel { grid-area: fuel; }
+.a-fuel summary { cursor: pointer; list-style: revert; }
+.fu-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .5rem; margin: .5rem 0; }
+.fu-in { display: flex; flex-direction: column; gap: .2rem; font-size: .74rem; color: var(--text-secondary); min-width: 0; }
+.fu-in input, .fu-in select { background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px; padding: .35rem .5rem; font: inherit; font-size: .9rem; min-width: 0; width: 100%; }
+.fu-pair { display: flex; gap: .3rem; } .fu-pair input { flex: 1; } .fu-pair select { width: auto; }
+.fu-big { display: flex; gap: 1.2rem; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.fu-big small { display: block; font-size: .7rem; color: var(--text-secondary); }
+.fu-big b { font-size: 1.5rem; }
+.fu-big .warn b { color: var(--warning); }
+@media (max-width: 760px) { .fu-grid { grid-template-columns: 1fr 1fr; } }
+.fu-pair select { flex: 0 0 auto; }

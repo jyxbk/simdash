@@ -612,3 +612,247 @@ def compare_laps(lap: dict, ref: dict) -> dict:
                 tot[p["key"]] += p["ms"]
     res["phase_totals"] = [{"key": key, "label": label, "ms": tot[key]} for key, label in PHASES]
     return res
+
+
+# ---------------------------------------------------------------------------
+# Fahrverhalten / Setup-Diagnose: Lenkung gegen die tatsächlich gefahrene Kurve.
+# Aus x/z ergibt sich die Krümmung der Linie (1/Radius), daraus die Querbeschleunigung v²·k.
+# Ein Modell „Lenkung = c1·k + c2·Quer-g“ wird über alle sauberen Runden angepasst; wer an
+# einer Stelle deutlich mehr lenkt, als das Modell erwartet, schiebt dort (Untersteuern).
+# Gegenlenken (Lenkung entgegen der Kurve) heißt: das Heck kommt (Übersteuern).
+# ---------------------------------------------------------------------------
+K_MIN = 0.002            # 1/m – darunter (Radius > 500 m) ist es keine Kurve
+CS_K = 0.003             # Gegenlenken nur in echten Kurven werten
+CS_ST = 0.02             # so viel Gegenlenken (Anteil Lenkbereich) zählt
+US_RESID = 0.35          # normierte Mehr-Lenkung ab der wir „schiebt“ sagen
+OS_SHARE = 0.25          # in so vielen Runden Gegenlenken → Übersteuern
+HANDLING_PHASES = (("entry", "Einlenken"), ("mid", "Scheitel"), ("exit", "Ausgang"))
+
+
+def curvature(lap: dict, n: int) -> list[float] | None:
+    """Krümmung (1/m, mit Vorzeichen) entlang der Runde aus geglätteten x/z."""
+    x, z = _filled(lap["trace"].get("x"), n), _filled(lap["trace"].get("z"), n)
+    if x is None or z is None:
+        return None
+    w = max(1, round(4 * n / 800))
+    d = max(1, round(3 * n / 800))
+    x, z = _smooth(x, w), _smooth(z, w)
+    import math
+    k = []
+    for i in range(n):
+        a, b = (i - d) % n, (i + d) % n
+        h1 = math.atan2(z[i] - z[a], x[i] - x[a])
+        h2 = math.atan2(z[b] - z[i], x[b] - x[i])
+        dh = (h2 - h1 + math.pi) % (2 * math.pi) - math.pi
+        ds = math.hypot(x[b] - x[i], z[b] - z[i]) + math.hypot(x[i] - x[a], z[i] - z[a])
+        k.append(2 * dh / ds if ds > 0.5 else 0.0)
+    return k
+
+
+def _countersteer(k: list[float], st: list[float], sgn: int, lag: int, n: int) -> set[int]:
+    """Rasterpunkte mit echtem Gegenlenken: Lenkung gegen die Kurve, nicht beim Richtungswechsel
+    (Krümmung hat ±6 Punkte dasselbe Vorzeichen) und entweder ≥2 Punkte lang oder deutlich (≥8 %)."""
+    sign = lambda x: 1 if x > 0 else -1
+    w = max(1, round(6 * n / 800))
+    raw = []
+    for i in range(n):
+        kj = k[(i + lag) % n]
+        if abs(kj) > CS_K and sgn * st[i] * sign(kj) < -CS_ST:
+            raw.append(i)
+    out: set[int] = set()
+    k_run: list[int] = []
+    for i in raw + [None]:
+        if i is not None and (not k_run or i == k_run[-1] + 1):
+            k_run.append(i)
+            continue
+        if k_run:
+            kj = k[(k_run[0] + lag) % n]
+            steady = all(sign(k[x % n]) == sign(kj) for x in range(k_run[0] - w, k_run[-1] + w + 1))
+            deep = min(sgn * st[x] * sign(k[(x + lag) % n]) for x in k_run) <= -0.08
+            if steady and (len(k_run) >= 2 or deep):
+                out.update(k_run)
+        k_run = [i] if i is not None else []
+    return out
+
+
+def _ls2(xs: list[tuple[float, float]], ys: list[float]) -> tuple[float, float] | None:
+    a11 = sum(p[0] * p[0] for p in xs); a12 = sum(p[0] * p[1] for p in xs); a22 = sum(p[1] * p[1] for p in xs)
+    b1 = sum(p[0] * y for p, y in zip(xs, ys)); b2 = sum(p[1] * y for p, y in zip(xs, ys))
+    det = a11 * a22 - a12 * a12
+    if abs(det) < 1e-12:
+        return None
+    return (b1 * a22 - b2 * a12) / det, (a11 * b2 - a12 * b1) / det
+
+
+SETUP_HINTS = {
+    ("entry", "under"): ("Schiebt beim Einlenken",
+                         ["Bremsbalance 0,5–1 % nach hinten", "Stabilisator vorn eine Stufe weicher",
+                          "Fahrer: etwas früher fertig bremsen oder beim Einlenken leicht auf der Bremse bleiben (Trailbraking)"]),
+    ("mid", "under"): ("Schiebt am Scheitel",
+                       ["Stabilisator vorn weicher oder hinten härter", "Mehr Abtrieb vorn (Frontflügel/Splitter, vorn tiefer)",
+                        "Reifendruck vorn prüfen (im Fenster?)", "Fahrer: etwas weniger Tempo rein, früher gerade aufmachen"]),
+    ("exit", "under"): ("Schiebt am Ausgang",
+                        ["Weniger Differenzialsperre unter Last (Power)", "Stabilisator hinten eine Stufe härter",
+                         "Fahrer: Gas erst aufbauen, wenn die Lenkung aufgeht"]),
+    ("entry", "over"): ("Heck kommt beim Anbremsen/Einlenken",
+                        ["Bremsbalance 0,5–1 % nach vorn", "Mehr Differenzialsperre im Schub (Coast/Preload)",
+                         "Motorbremse (EBB) reduzieren, falls einstellbar", "Fahrer: Bremse sanfter lösen"]),
+    ("mid", "over"): ("Heck kommt am Scheitel",
+                      ["Stabilisator hinten weicher", "Mehr Heckflügel", "Fahrer: Scheiteltempo leicht senken, Lenkung ruhiger"]),
+    ("exit", "over"): ("Heck kommt unter Gas",
+                       ["Traktionskontrolle eine Stufe höher", "Stabilisator hinten weicher", "Heckflügel +1",
+                        "Fahrer: Gas weicher und erst mit aufgehender Lenkung voll"]),
+}
+
+
+def handling(laps: list[dict], max_laps: int = 12) -> dict:
+    """Fahrverhalten je Kurve und Phase aus Lenkung, Linie und Tempo (nur Runden mit x/z und Lenkung)."""
+    pool = [l for l in laps if _counting(l) and _usable(l) and l["trace"].get("st") and l["trace"].get("x")]
+    res: dict[str, Any] = {"ok": False, "laps_used": 0}
+    if len(pool) < 3:
+        res["reason"] = "too_few_laps"
+        res["laps_with_data"] = len(pool)
+        return res
+    pool.sort(key=lambda l: l["lap_time_ms"])
+    pool = [l for l in pool if l["lap_time_ms"] <= pool[0]["lap_time_ms"] * CLEAN_FACTOR][:max_laps]
+    if len(pool) < 3:
+        res["reason"] = "too_few_laps"
+        res["laps_with_data"] = len(pool)
+        return res
+    n = max(len(l["trace"]["t"]) for l in pool)
+    data = []
+    for l in pool:
+        l = dict(l, trace=resample(l["trace"], n))
+        k = curvature(l, n)
+        st, v = _filled(l["trace"].get("st"), n), _filled(l["trace"].get("v"), n)
+        if k is None or st is None or v is None:
+            continue
+        data.append({"lap": l, "k": k, "st": st, "v": v, "thr": _filled(l["trace"].get("thr"), n),
+                     "brk": _filled(l["trace"].get("brk"), n)})
+    if len(data) < 3:
+        res["reason"] = "too_few_laps"
+        return res
+    lag = max(0, round(n / 800))                       # Lenkung kommt ~1 Punkt vor der Linie
+    for d in data:
+        d["cs"] = set()
+    # Vorzeichen der Lenkung je Spiel unbekannt → aus der Korrelation mit der Krümmung bestimmen
+    corr = sum(d["st"][i] * d["k"][(i + lag) % n] for d in data for i in range(n))
+    sgn = 1 if corr >= 0 else -1
+    sign = lambda x: 1 if x > 0 else -1
+    xs, ys = [], []
+    for d in data:
+        for i in range(n):
+            j = (i + lag) % n
+            kj = d["k"][j]
+            if abs(kj) > K_MIN:
+                xs.append((abs(kj), (d["v"][j] / 3.6) ** 2 * abs(kj) / 9.81))
+                ys.append(sgn * d["st"][i] * sign(kj))
+    fit = _ls2(xs, ys)
+    if not fit or fit[0] <= 0:
+        res["reason"] = "no_fit"
+        return res
+    c1, c2 = fit
+    for d in data:
+        d["cs"] = _countersteer(d["k"], d["st"], sgn, lag, n)
+    ref = data[0]["lap"]
+    corners = find_corners(_filled(ref["trace"]["v"], n), w=max(1, round(n / 200)))
+    if len(corners) < 2:
+        res["reason"] = "no_corners"
+        return res
+    for i, c in enumerate(corners):
+        c["end"] = corners[(i + 1) % len(corners)]["start"]
+    m_per_idx = track_length(ref) / n
+    exit_len = max(4, round(150 / m_per_idx)) if m_per_idx > 0 else n // 25
+    out = []
+    totals = {(p, kind): [] for p, _ in HANDLING_PHASES for kind in ("under", "over")}
+    for ci, c in enumerate(corners):
+        b = phase_bounds(ref, c, n)
+        a = c["start"]
+        segs = {"entry": (b[0], b[2]), "mid": (b[2], b[3]), "exit": (b[3], min(b[4], b[3] + exit_len))}
+        phases = []
+        for key, label in HANDLING_PHASES:
+            o1, o2 = segs[key]
+            per, cs_laps, cs_thr, cs_brk, cs_fast = [], 0, [], [], []
+            for di, d in enumerate(data):
+                rs, kin, cs = [], [], []
+                for o in range(o1, o2):
+                    i = (a + o) % n
+                    j = (i + lag) % n
+                    kj = d["k"][j]
+                    if abs(kj) <= K_MIN:
+                        continue
+                    stv = sgn * d["st"][i] * sign(kj)
+                    pred = c1 * abs(kj) + c2 * (d["v"][j] / 3.6) ** 2 * abs(kj) / 9.81
+                    rs.append(stv - pred)
+                    kin.append(c1 * abs(kj))
+                    if i in d["cs"]:
+                        cs.append(i)
+                if len(rs) >= 3:
+                    per.append(statistics.mean(rs) / (statistics.mean(kin) + 0.02))
+                if cs:
+                    cs_laps += 1
+                    cs_fast.append(di)
+                    if d["thr"] is not None:
+                        cs_thr.append(statistics.mean(d["thr"][i] for i in cs))
+                    if d["brk"] is not None:
+                        cs_brk.append(statistics.mean(d["brk"][i] for i in cs))
+            if not per:
+                continue
+            resid = statistics.mean(per)
+            spread = statistics.pstdev(per) if len(per) > 1 else 0
+            share = cs_laps / len(data)
+            kind = None
+            if share >= OS_SHARE:
+                kind = "over"
+            elif resid >= US_RESID and resid > spread:
+                kind = "under"
+            ph = {"key": key, "label": label, "steer_extra": round(resid, 2), "spread": round(spread, 2),
+                  "countersteer_laps": cs_laps, "kind": kind}
+            if cs_thr:
+                ph["countersteer_throttle"] = round(statistics.mean(cs_thr))
+            if cs_brk:
+                ph["countersteer_brake"] = round(statistics.mean(cs_brk))
+            if cs_laps:
+                # Gegenlenken in den schnellen oder langsamen Runden? (Liste ist nach Zeit sortiert)
+                ph["countersteer_in_fastest"] = sum(1 for x in cs_fast if x < max(1, len(data) // 3))
+            if kind:
+                # Ursache zählt mehr als der Ort: Gegenlenken unter Gas ist Leistungsübersteuern,
+                # auf der Bremse ist es Bremsübersteuern – egal in welcher Phase es auftritt
+                cause = key
+                if kind == "over" and ph.get("countersteer_throttle", 0) >= 50:
+                    cause = "exit"
+                elif kind == "over" and ph.get("countersteer_brake", 0) >= 10:
+                    cause = "entry"
+                if ci + 1 not in totals[(cause, kind)]:
+                    totals[(cause, kind)].append(ci + 1)
+            phases.append(ph)
+        flags = [p for p in phases if p["kind"]]
+        out.append({"no": ci + 1, "apex": round(c["apex"] / n, 4), "phases": phases,
+                    "text": [_handling_text(p, len(data)) for p in flags]})
+    # Gesamtbild: was tritt in mehreren Kurven auf → Setup-Vorschlag
+    findings = []
+    for (key, kind), nos in totals.items():
+        if not nos:
+            continue
+        title, hints = SETUP_HINTS[(key, kind)]
+        findings.append({"key": key, "kind": kind, "title": title, "corners": nos,
+                         "weight": len(nos) / len(corners), "hints": hints})
+    findings.sort(key=lambda f: -f["weight"])
+    res.update({"ok": True, "laps_used": len(data), "model": {"c1": round(c1, 3), "c2": round(c2, 4)},
+                "corners": out, "findings": findings,
+                "laps": [{"id": d["lap"]["id"], "lap_time_ms": d["lap"]["lap_time_ms"]} for d in data]})
+    return res
+
+
+def _handling_text(p: dict, nlaps: int) -> str:
+    if p["kind"] == "over":
+        how = ""
+        if p.get("countersteer_throttle", 0) >= 50:
+            how = " unter Gas"
+        elif p.get("countersteer_brake", 0) >= 10:
+            how = " auf der Bremse"
+        txt = f"{p['label']}: Heck kommt{how} (Gegenlenken in {p['countersteer_laps']} von {nlaps} Runden)"
+        if p.get("countersteer_in_fastest") == 0:
+            txt += ", in deinen schnellsten Runden nicht"
+        return txt
+    return f"{p['label']}: schiebt über die Vorderräder (du lenkst {round(p['steer_extra'] * 100)} % mehr, als die Kurve verlangt)"

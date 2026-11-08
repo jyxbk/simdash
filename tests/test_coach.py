@@ -185,3 +185,59 @@ def test_apex_offset_inside_outside():
         ref = ring(600, cw)
         assert coach._apex_offset(ring(598, cw), ref, 50, N)["apex_offset_m"] == 2.0     # innen
         assert coach._apex_offset(ring(603, cw), ref, 50, N)["apex_offset_m"] == -3.0    # außen
+
+
+def _handling_lap(i, extra_steer=None, counter=None, noise=0.0):
+    """Runde auf einer echten Linie: Krümmung aus Quer-g, Lenkung = 12·k + 0,06·g (+ Störungen)."""
+    import math, random
+    rnd = random.Random(i)
+    corners = [(30, 90, 10), (90, 140, 8), (150, 70, 12)]
+    lap = make_lap(i, corners)
+    v = lap["trace"]["v"]
+    ds = LENGTH / N
+    # Krümmung: in Kurven Quer-g ≈ 1,5 g, Vorzeichen abwechselnd (links/rechts)
+    k = [0.0] * N
+    for ci, (apex, vmin, w) in enumerate(corners):
+        sgn = 1 if ci % 2 == 0 else -1
+        for d in range(-w, w + 1):
+            j = (apex + d) % N
+            k[j] = sgn * 1.5 * 9.81 / (v[j] / 3.6) ** 2 * (1 - abs(d) / (w + 1))
+    # Rest auf volle Umdrehung bringen, damit die Linie sich schließt (für den Test egal)
+    x, z, hd = [], [], 0.0
+    px = pz = 0.0
+    for j in range(N):
+        x.append(round(px, 2)); z.append(round(pz, 2))
+        hd += k[j] * ds
+        px += math.cos(hd) * ds; pz += math.sin(hd) * ds
+    st = []
+    for j in range(N):
+        g = (v[j] / 3.6) ** 2 * abs(k[j]) / 9.81
+        val = (12 * abs(k[j]) + 0.06 * g) * (1 if k[j] >= 0 else -1) + rnd.uniform(-noise, noise)
+        st.append(val)
+    if extra_steer:
+        lo, hi, f = extra_steer
+        for j in range(lo, hi):
+            st[j] *= f
+    if counter:
+        for j in counter:
+            st[j] = -0.08 * (1 if k[j] >= 0 else -1)
+    lap["trace"].update(x=x, z=z, st=[round(s_, 3) for s_ in st])
+    return lap
+
+
+def test_handling_under_and_oversteer():
+    laps = [_handling_lap(i, extra_steer=(87, 94, 1.8), counter=[152, 153] if i % 2 else None, noise=0.005)
+            for i in range(1, 7)]
+    r = coach.handling(laps)
+    assert r["ok"] and r["laps_used"] == 6
+    k2 = next(c for c in r["corners"] if abs(c["apex"] - 90 / N) < 0.02)
+    k3 = next(c for c in r["corners"] if abs(c["apex"] - 150 / N) < 0.02)
+    assert any(p["kind"] == "under" for p in k2["phases"])
+    assert any(p["kind"] == "over" for p in k3["phases"])
+    titles = [f["title"] for f in r["findings"]]
+    assert any("Schiebt" in t for t in titles) and any("Heck" in t for t in titles)
+
+
+def test_handling_needs_steering_and_position():
+    laps = [make_lap(i, BASE) for i in range(1, 5)]
+    assert coach.handling(laps)["ok"] is False

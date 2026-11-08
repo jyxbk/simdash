@@ -83,7 +83,7 @@ function onLive(msg) {
 
   const combo = { game: d.game, track: d.track, layout: d.layout || "", car: d.car };
   if (!live.combo || comboKey(live.combo) !== comboKey(combo)) {
-    live.combo = combo; live.pb = null; live.geo = null; live.rows = new Set(); live.pbSectors = null; live.map = null; live.laps = []; live.coachId = null; $("#lv-coach-card").hidden = true;
+    live.combo = combo; live.pb = null; live.geo = null; live.rows = new Set(); live.pbSectors = null; live.map = null; live.laps = []; live.coachId = null; $("#lv-coach-card").hidden = true; fuel.inputs = null;
     $("#lv-map").replaceChildren();
     loadPb();
     loadLaps();
@@ -97,6 +97,7 @@ function onLive(msg) {
     if (lapDone) { setTimeout(loadLaps, 2500); setTimeout(loadPb, 2500); }
   }
   if (d.state === "live" && !d.paused && d.current_ms > 0) addTrail(d);
+  fuelOnLive(d);
   render();
 }
 
@@ -128,6 +129,7 @@ async function loadLaps() {
     live.laps = laps;
     renderLaps();
     loadLiveCoach();
+    renderFuel();
   } catch (e) { console.error(e); }
 }
 

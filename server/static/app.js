@@ -341,7 +341,7 @@ async function openAnalyse() {
   const empty = $("#analyse-empty");
   const hasData = bests.length > 0;
   empty.hidden = hasData;
-  for (const id of ["#coach", "#analysis", "#laptimes", ".an-head", ".an-row"]) $(id).hidden = !hasData;
+  for (const id of ["#coach", "#handling", "#analysis", "#laptimes", ".an-head", ".an-row"]) $(id).hidden = !hasData;
   if (!hasData) {
     empty.replaceChildren(h("p", { class: "analysis-empty" }, state.loaded ? "Mit diesen Filtern gibt es keine Runden. Wähle oben ein anderes Spiel oder „Alle“." : "Lädt …"));
     return;
@@ -374,6 +374,7 @@ async function refreshDetail(c) {
   loadNotes(c);
   await loadAnalysis(c);
   loadCoach(c);
+  loadHandling(c);
   if (keepSel && analysis.traced.some((l) => String(l.id) === keepSel[0]) && analysis.traced.some((l) => String(l.id) === keepSel[1])) {
     [$("#pick-lap").value, $("#pick-ref").value] = keepSel;
     renderAnalysis();

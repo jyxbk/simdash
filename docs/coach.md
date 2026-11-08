@@ -125,6 +125,26 @@ the corner is returned, plus the sideways distance at the apex (+ inside,
 
 Shown in the live tab after every lap and in the lap comparison.
 
+## 8. Handling and setup diagnosis
+
+`GET /api/handling` estimates understeer and oversteer without lateral-g data:
+the curvature of the driven line comes from smoothed x/z positions, lateral
+acceleration is v²·k. Over the best (up to 12) clean laps a linear model
+`steering = c1·k + c2·g` is fitted (steering sign is taken from its correlation
+with curvature, so it works for every game). For each corner the phases
+turn-in, apex and exit (≈150 m) are checked:
+
+- **Understeer:** on average clearly more steering than the model expects
+  (≥ 35 % of the kinematic steering, and more than the spread between laps).
+- **Oversteer:** real countersteer (steering against the corner, not during a
+  change of direction, at least 2 points or ≥ 8 % of the range) in at least a
+  quarter of the laps. With throttle ≥ 50 % it counts as power oversteer, with
+  brake ≥ 10 % as oversteer on the brakes.
+
+Findings are grouped by cause and come with generic setup suggestions (GT-style
+cars). It is an estimate: change one thing, drive 5 laps, then pick that
+session to compare.
+
 ## Limits
 
 - **Resolution**: collector 0.6 records a point every 0.125 % of the lap
