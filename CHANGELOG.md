@@ -4,6 +4,19 @@ Server/UI and collector have separate version numbers. The collector version is
 in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 `server/static/index.html`.
 
+## UI 0.14.0 — 2026-11-08
+- **Cockpit** (`/#cockpit`, button "⛶ Cockpit" in the live tab): full-screen
+  one-pager for the phone at the rig, landscape and portrait, no scrolling.
+  Huge delta to the PB (tinted blue/red by size), prediction, lap time, last
+  lap and PB, speed, gear, rpm/throttle/brake bars, 10 sectors vs. PB, fuel
+  laps, valid/pit/outlap flags, and after each lap the biggest loss with tip.
+- **Screen stays on over plain HTTP**: Wake Lock only works on HTTPS, so the
+  cockpit also plays a tiny muted looping video (works on iPhone and Android).
+- **Reconnects by itself**: if no data arrives for 6 s, or the page comes back
+  from the background, the live stream is rebuilt; connection state is shown.
+- Home-screen app: web manifest (start in cockpit, full screen, landscape),
+  Apple touch icon; on iPhone "Add to Home Screen" gives real full screen.
+
 ## UI 0.13.1 — 2026-11-08
 - Verified collector 0.7 on real AC EVO laps (Red Bull Ring): lateral g and yaw
   rate fill 97 % of the trace, lateral g ≈ speed × yaw rate (r = 0.98), so

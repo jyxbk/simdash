@@ -8,7 +8,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>SimDash</title>
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/style.css?v=0.13.0">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <meta name="apple-mobile-web-app-title" content="SimDash">
+  <link rel="stylesheet" href="/static/style.css?v=0.14.0">
 </head>
 <body class="viz-root" data-palette="#3987e5">
   <header class="topbar">
@@ -141,6 +144,7 @@
         <div class="live-what" id="lv-what"></div>
         <div class="live-sub" id="lv-sub"></div>
       </div>
+      <button class="cp-open" id="cp-open" type="button" title="Vollbild fürs Handy am Rig">⛶ Cockpit</button>
       <label class="lv-driver">Es fährt
         <select id="lv-driver" aria-label="Wer fährt gerade?"></select>
       </label>
@@ -220,6 +224,39 @@
     </div>
   </main>
 
+  <section id="cockpit-view" class="cockpit-view" hidden aria-label="Cockpit">
+    <div class="cp-status">
+      <span class="cp-dot" id="cp-conn"></span><span class="cp-conn-txt" id="cp-conn-txt"></span>
+      <span class="cp-what" id="cp-what"></span>
+      <span class="cp-flags" id="cp-flags"></span>
+      <button class="cp-exit" id="cp-exit" type="button" aria-label="Cockpit verlassen">✕</button>
+    </div>
+    <div class="cp-time-box">
+      <div class="cp-label" id="cp-lapno">Runde</div>
+      <div class="cp-time" id="cp-time">–</div>
+      <div class="cp-small" id="cp-last"></div>
+      <div class="cp-small" id="cp-best"></div>
+    </div>
+    <div class="cp-delta-box" id="cp-delta-box">
+      <div class="cp-label">Abstand zur Bestzeit</div>
+      <div class="cp-delta" id="cp-delta">–</div>
+      <div class="cp-small" id="cp-delta-sub"></div>
+    </div>
+    <div class="cp-speed-box">
+      <div class="cp-sg"><div><span class="cp-speed" id="cp-speed">–</span><small>km/h</small></div><div><span class="cp-gear" id="cp-gear">–</span><small>Gang</small></div></div>
+      <div class="cp-bar"><div id="cp-rpm" class="rpm"></div></div>
+      <div class="cp-bar"><div id="cp-thr" class="thr"></div></div>
+      <div class="cp-bar"><div id="cp-brk" class="brk"></div></div>
+    </div>
+    <div class="cp-sectors" id="cp-sectors"></div>
+    <div class="cp-coach" id="cp-coach"></div>
+    <button class="cp-start" id="cp-start" type="button">
+      <b>Antippen für Vollbild</b>
+      <span>Display bleibt an, solange das Cockpit offen ist.</span>
+      <span id="cp-start-hint" hidden>iPhone: Für echtes Vollbild im Teilen-Menü „Zum Home-Bildschirm“ wählen, während das Cockpit offen ist, und SimDash dann von dort starten.</span>
+    </button>
+  </section>
+
   <footer>
     <a href="/static/simdash-collector.zip">Collector für Windows herunterladen</a>
     <span>·</span>
@@ -254,12 +291,13 @@
     </div>
   </template>
 
-  <script src="/static/app.js?v=0.13.0"></script>
-  <script src="/static/coach.js?v=0.13.0"></script>
-  <script src="/static/progress.js?v=0.13.0"></script>
-  <script src="/static/insights.js?v=0.13.0"></script>
-  <script src="/static/handling.js?v=0.13.1"></script>
-  <script src="/static/fuel.js?v=0.13.0"></script>
-  <script src="/static/live.js?v=0.13.0"></script>
+  <script src="/static/app.js?v=0.14.0"></script>
+  <script src="/static/coach.js?v=0.14.0"></script>
+  <script src="/static/progress.js?v=0.14.0"></script>
+  <script src="/static/insights.js?v=0.14.0"></script>
+  <script src="/static/handling.js?v=0.14.0"></script>
+  <script src="/static/fuel.js?v=0.14.0"></script>
+  <script src="/static/live.js?v=0.14.0"></script>
+  <script src="/static/cockpit.js?v=0.14.0"></script>
 </body>
 </html>

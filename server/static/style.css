@@ -946,3 +946,78 @@ svg.mini .reflabel { fill: var(--good); font-size: 10.5px; font-weight: 600; }
 .cn-edit:hover { color: var(--text-primary); }
 .hd-cost { color: var(--loss); }
 .cname { white-space: nowrap; } .cn-txt { margin-left: .4rem; font-weight: 600; }
+
+/* ===== Cockpit: Vollbild fürs Handy am Rig ===== */
+.cp-open { background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border); border-radius: 999px;
+  padding: .3rem .8rem; font: inherit; font-size: .85rem; cursor: pointer; white-space: nowrap; }
+body.cockpit { overflow: hidden; }
+body.cockpit > header, body.cockpit > footer, body.cockpit #live-view, body.cockpit #filters { display: none !important; }
+.cp-keepawake { position: fixed; width: 1px; height: 1px; opacity: .01; pointer-events: none; left: 0; bottom: 0; }
+.cockpit-view { position: fixed; inset: 0; z-index: 50; background: var(--page); color: var(--text-primary);
+  height: 100dvh; box-sizing: border-box; overflow: hidden; user-select: none; -webkit-user-select: none;
+  padding: max(.35rem, env(safe-area-inset-top)) max(.5rem, env(safe-area-inset-right)) max(.35rem, env(safe-area-inset-bottom)) max(.5rem, env(safe-area-inset-left));
+  display: grid; gap: .4rem; font-variant-numeric: tabular-nums;
+  /* Querformat (Handy liegt quer am Rig) */
+  grid-template-columns: 1fr 1.35fr 1fr;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "status status status" "time delta speed" "sect sect sect" "coach coach coach"; }
+.cockpit-view[hidden] { display: none; }
+.cockpit-view > div { background: var(--surface-1); border-radius: 12px; min-width: 0; min-height: 0; }
+.cp-status { grid-area: status; display: flex; align-items: center; gap: .5rem; background: none !important; font-size: clamp(.7rem, 2.2vmin, .95rem); color: var(--text-secondary); }
+.cp-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-dot { width: .6rem; height: .6rem; border-radius: 50%; background: var(--text-muted); flex: none; }
+.cp-dot.on { background: var(--good); box-shadow: 0 0 .5rem var(--good); }
+.cp-dot.idle { background: var(--warning); }
+.cp-dot.off { background: var(--critical); animation: cp-blink 1s infinite; }
+@keyframes cp-blink { 50% { opacity: .3; } }
+.cp-conn-txt { white-space: nowrap; }
+.cp-flags { display: flex; gap: .3rem; }
+.cp-flag { border: 1px solid var(--border); border-radius: 6px; padding: .05rem .4rem; font-weight: 700; color: var(--text-primary); white-space: nowrap; }
+.cp-flag.bad { background: var(--critical); border-color: var(--critical); }
+.cp-flag.pit { background: var(--warning); color: #000; border-color: var(--warning); }
+.cp-flag.warn { color: var(--warning); border-color: var(--warning); }
+.cp-exit { background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; padding: .1rem .55rem; cursor: pointer; }
+.cp-label { font-size: clamp(.6rem, 2vmin, .85rem); text-transform: uppercase; letter-spacing: .06em; color: var(--text-secondary); font-weight: 700; }
+.cp-small { font-size: clamp(.7rem, 2.8vmin, 1.1rem); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cp-small b { color: var(--text-primary); }
+.cp-small .loss { color: var(--loss); font-weight: 700; } .cp-small .gain { color: var(--gain); font-weight: 700; }
+.cp-time-box, .cp-delta-box, .cp-speed-box { padding: .5rem .7rem; display: flex; flex-direction: column; justify-content: center; gap: .2rem; }
+.cp-time-box { grid-area: time; }
+.cp-time { font-size: clamp(1.6rem, 9vmin, 4.5rem); font-weight: 700; line-height: 1; }
+.cp-delta-box { grid-area: delta; align-items: center; text-align: center; --tint: .12; transition: background-color .3s; }
+.cp-delta-box.loss { background: rgba(230, 103, 103, var(--tint)) !important; }
+.cp-delta-box.gain { background: rgba(57, 135, 229, var(--tint)) !important; }
+.cp-delta { font-size: clamp(2.6rem, 20vmin, 9rem); font-weight: 800; line-height: .95; letter-spacing: -.02em; }
+.cp-delta-box.loss .cp-delta { color: #ff8a8a; } .cp-delta-box.gain .cp-delta { color: #7fb6ff; }
+.cp-speed-box { grid-area: speed; }
+.cp-sg { display: flex; justify-content: space-between; align-items: flex-end; gap: .5rem; }
+.cp-sg small { display: block; font-size: clamp(.55rem, 2vmin, .8rem); color: var(--text-secondary); }
+.cp-speed { font-size: clamp(1.8rem, 11vmin, 5rem); font-weight: 700; line-height: 1; }
+.cp-gear { font-size: clamp(2.2rem, 15vmin, 7rem); font-weight: 800; line-height: 1; color: var(--warning); }
+.cp-bar { height: clamp(4px, 1.4vmin, 9px); background: var(--grid); border-radius: 4px; overflow: hidden; }
+.cp-bar > div { height: 100%; width: 0; border-radius: 4px; }
+.cp-bar .thr { background: var(--good); } .cp-bar .brk { background: var(--critical); }
+.cp-bar .rpm { background: var(--text-secondary); } .cp-bar .rpm.hot { background: var(--critical); }
+.cp-sectors { grid-area: sect; display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; background: none !important; }
+.cp-sec { background: var(--surface-1); border-radius: 6px; text-align: center; font-size: clamp(.6rem, 2.6vmin, 1rem); font-weight: 700;
+  padding: .3rem 0; min-height: 1.4em; border-top: 3px solid transparent; }
+.cp-sec.loss { border-top-color: var(--loss); color: #ff9a9a; } .cp-sec.gain { border-top-color: var(--gain); color: #8fc0ff; }
+.cp-sec.now { border-top-color: var(--text-primary); background: var(--surface-2); }
+.cp-coach { grid-area: coach; padding: .35rem .7rem; font-size: clamp(.7rem, 2.8vmin, 1.1rem); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-secondary); }
+.cp-coach b { color: var(--text-primary); }
+.cp-start { position: absolute; inset: 0; z-index: 2; border: 0; background: rgba(13, 13, 13, .88); color: var(--text-primary);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .6rem; font: inherit; padding: 1.5rem; text-align: center; cursor: pointer; }
+.cp-start[hidden] { display: none; }
+.cp-start b { font-size: 1.4rem; } .cp-start span { color: var(--text-secondary); max-width: 32rem; }
+
+/* Hochformat: alles untereinander, Delta oben und am größten */
+@media (orientation: portrait) {
+  .cockpit-view { grid-template-columns: 1fr 1fr; grid-template-rows: auto minmax(0, 1.3fr) minmax(0, 1fr) auto auto;
+    grid-template-areas: "status status" "delta delta" "time speed" "sect sect" "coach coach"; }
+  .cp-delta { font-size: clamp(3rem, 24vw, 9rem); }
+  .cp-time { font-size: clamp(1.4rem, 9vw, 3.5rem); }
+  .cp-speed { font-size: clamp(1.5rem, 10vw, 4rem); } .cp-gear { font-size: clamp(2rem, 14vw, 5rem); }
+  .cp-sectors { grid-template-columns: repeat(5, 1fr); }
+  .cp-coach { white-space: normal; }
+}
+@media (max-width: 760px), (max-height: 500px) { .cp-open { padding: .25rem .6rem; } }

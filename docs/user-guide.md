@@ -138,3 +138,13 @@ stays on.
 
 Which values appear depends on the game. See the table in the
 [README](../README.md#supported-games).
+
+
+## Cockpit (phone at the rig)
+
+Open the live tab and tap **⛶ Cockpit** (or go to `/#cockpit`). Tap once to
+start: Android goes full screen and locks landscape; the screen stays on while
+the cockpit is open. On iPhone, Safari cannot hide its bars from a web page –
+use *Share → Add to Home Screen* while the cockpit is open and start SimDash
+from the home screen icon. ✕ leaves the cockpit. If the connection drops, the
+dot turns red and the cockpit reconnects by itself.

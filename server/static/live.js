@@ -14,7 +14,7 @@ const LIVE_STALE_S = 4;
 
 /* --- Tabs ------------------------------------------------------------------ */
 function currentTab() {
-  return location.hash === "#live" ? "live" : location.hash.startsWith("#analyse") ? "analyse" : "overview";
+  return location.hash === "#live" || location.hash === "#cockpit" ? "live" : location.hash.startsWith("#analyse") ? "analyse" : "overview";
 }
 function showTab() {
   const tab = currentTab(), isLive = tab === "live";
@@ -30,6 +30,7 @@ function showTab() {
   $("#tooltip").hidden = true;
   if (isLive) startLive(); else { stopLive(); if (live.wasLive) load(); }
   if (tab === "analyse") openAnalyse();
+  if (typeof cpEnter === "function") { if (location.hash === "#cockpit") cpEnter(); else cpLeave(); }
   live.wasLive = isLive;
 }
 window.addEventListener("hashchange", showTab);
@@ -79,7 +80,7 @@ function onLive(msg) {
   const prev = live.data;
   live.data = d;
   $("#tab-live-dot").hidden = !(d && d.state === "live" && msg.age_s < LIVE_STALE_S);
-  if (!d || !d.game) { renderState(); return; }
+  if (!d || !d.game) { renderState(); if (typeof renderCockpit === "function") renderCockpit(); return; }
 
   const combo = { game: d.game, track: d.track, layout: d.layout || "", car: d.car };
   if (!live.combo || comboKey(live.combo) !== comboKey(combo)) {
@@ -99,6 +100,7 @@ function onLive(msg) {
   if (d.state === "live" && !d.paused && d.current_ms > 0) addTrail(d);
   fuelOnLive(d);
   render();
+  if (typeof renderCockpit === "function") renderCockpit();
 }
 
 async function loadPb() {
@@ -144,6 +146,7 @@ async function loadLiveCoach() {
   try {
     const r = await fetchInsights(last.id);
     if (live.coachId !== last.id) return;
+    live.coachData = r;
     card.hidden = false;
     renderInsights($("#lv-coach"), r, { compact: true, combo: live.combo });
   } catch (e) { console.error(e); }
@@ -402,10 +405,11 @@ function tick() {
   live.raf = requestAnimationFrame(tick);
   if (currentTab() !== "live") return;
   const d = live.data, el = $("#lv-time");
-  if (!d || !d.game) { el.textContent = "–"; return; }
+  if (!d || !d.game) { el.textContent = "–"; if (typeof tickCockpit === "function") tickCockpit(0); return; }
   let ms = d.current_ms;
   if (d.state === "live" && !d.paused && !isStale()) ms += Math.min(500, performance.now() - live.rxAt);
   el.textContent = ms > 0 ? fmt(Math.round(ms)) : "–";
+  if (typeof tickCockpit === "function") tickCockpit(ms);
   if (performance.now() - (live.stateAt || 0) > 1000) { live.stateAt = performance.now(); renderState(); }
 }
 
