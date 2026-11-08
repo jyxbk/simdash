@@ -976,7 +976,7 @@ body.cockpit > header, body.cockpit > footer, body.cockpit #live-view, body.cock
 .cp-flag.bad { background: var(--critical); border-color: var(--critical); }
 .cp-flag.pit { background: var(--warning); color: #000; border-color: var(--warning); }
 .cp-flag.warn { color: var(--warning); border-color: var(--warning); }
-.cp-exit { background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; padding: .1rem .55rem; cursor: pointer; }
+.cp-btn { background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 8px; font: inherit; font-size: clamp(.7rem, 2.2vmin, .9rem); padding: .2rem .6rem; cursor: pointer; white-space: nowrap; }
 .cp-label { font-size: clamp(.6rem, 2vmin, .85rem); text-transform: uppercase; letter-spacing: .06em; color: var(--text-secondary); font-weight: 700; }
 .cp-small { font-size: clamp(.7rem, 2.8vmin, 1.1rem); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cp-small b { color: var(--text-primary); }

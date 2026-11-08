@@ -30,7 +30,7 @@ function showTab() {
   $("#tooltip").hidden = true;
   if (isLive) startLive(); else { stopLive(); if (live.wasLive) load(); }
   if (tab === "analyse") openAnalyse();
-  if (typeof cpEnter === "function") { if (location.hash === "#cockpit") cpEnter(); else cpLeave(); }
+  if (typeof cpSync === "function") cpSync();
   live.wasLive = isLive;
 }
 window.addEventListener("hashchange", showTab);

@@ -2,8 +2,14 @@
 // Display bleibt an, Verbindung baut sich selbst wieder auf. Daten wie im Live-Tab (live.js).
 "use strict";
 
-const cp = { started: false, video: null, lastRx: 0 };
-const isCockpit = () => location.hash === "#cockpit";
+const cp = { started: false, video: null, lastRx: 0, detail: false };
+/** Handy: schmal (hoch) oder quer mit wenig Höhe. */
+const cpPhone = () => matchMedia("(max-width: 760px), (max-height: 500px)").matches;
+/** Cockpit zeigen? Immer bei #cockpit; am Handy ist es die Live-Ansicht (außer „Details“ gewählt). */
+const isCockpit = () => location.hash === "#cockpit" || (location.hash === "#live" && cpPhone() && !cp.detail);
+function cpSync() {
+  if (currentTab() === "live" && isCockpit()) cpEnter(); else cpLeave();
+}
 
 /* --- Display anlassen ------------------------------------------------------------
    Wake Lock gibt es nur über HTTPS. SimDash läuft im LAN über HTTP → zusätzlich ein stummes
@@ -31,11 +37,12 @@ async function cpStart() {
   await cpKeepAwake();
 }
 
-function cpExit() {
+function cpExit(to) {
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   cpRelease();
   cp.started = false;
-  location.hash = "#live";
+  if (to === "detail") { cp.detail = true; if (location.hash !== "#live") location.hash = "#live"; else cpSync(); }
+  else location.hash = "#";
 }
 
 function cpEnter() {
@@ -163,9 +170,19 @@ function tickCockpit(ms) {
 }
 
 $("#cp-start").addEventListener("click", cpStart);
-$("#cp-exit").addEventListener("click", cpExit);
-$("#cp-open").addEventListener("click", () => { location.hash = "#cockpit"; cpStart(); });
+$("#cp-exit").addEventListener("click", () => cpExit("overview"));
+$("#cp-detail").addEventListener("click", () => cpExit("detail"));
+$("#cp-open").addEventListener("click", () => {
+  cp.detail = false;
+  if (location.hash !== "#live" && location.hash !== "#cockpit") location.hash = cpPhone() ? "#live" : "#cockpit";
+  else if (!cpPhone()) location.hash = "#cockpit";
+  cpSync(); cpStart();
+});
+// Drehen oder Fenstergröße ändern: Handy-Erkennung neu
+window.addEventListener("resize", () => { if (currentTab() === "live") cpSync(); });
+// Andere Tabs: beim nächsten Öffnen von Live am Handy wieder das Cockpit
+window.addEventListener("hashchange", () => { if (currentTab() !== "live") cp.detail = false; });
 // Im Cockpit tippen holt Vollbild/Display-Sperre zurück (z. B. nach Sperrbildschirm)
 $("#cockpit-view").addEventListener("click", (e) => { if (e.target.closest("button")) return; if (cp.started) cpKeepAwake(); });
 // Direkt mit /#cockpit geöffnet (z. B. vom Home-Bildschirm): showTab lief schon vor diesem Skript
-if (isCockpit()) cpEnter();
+cpSync();

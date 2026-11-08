@@ -4,6 +4,11 @@ Server/UI and collector have separate version numbers. The collector version is
 in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 `server/static/index.html`.
 
+## UI 0.14.1 — 2026-11-08
+- On phones (narrow, or landscape with little height) the live tab *is* the
+  cockpit. "Details" shows the full live view, "⛶ Cockpit" goes back,
+  "Übersicht" leaves. Desktop and tablet keep the full live view.
+
 ## UI 0.14.0 — 2026-11-08
 - **Cockpit** (`/#cockpit`, button "⛶ Cockpit" in the live tab): full-screen
   one-pager for the phone at the rig, landscape and portrait, no scrolling.
