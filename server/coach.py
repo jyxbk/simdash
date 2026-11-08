@@ -905,7 +905,7 @@ def handling(laps: list[dict], max_laps: int = 12, geo: dict | None = None) -> d
     exit_len = max(4, round(150 / m_per_idx)) if m_per_idx > 0 else n // 25
     out = []
     totals = {(p, kind): [] for p, _ in HANDLING_PHASES for kind in ("under", "over")}
-    costs = {key: 0 for key in totals}
+    costs: dict = {key: None for key in totals}          # None = nicht messbar (zu wenige Runden)
     for ci, c in enumerate(corners):
         b = phase_bounds(ref, c, n)
         a = c["start"]
@@ -947,7 +947,7 @@ def handling(laps: list[dict], max_laps: int = 12, geo: dict | None = None) -> d
             spread = statistics.pstdev(per) if len(per) > 1 else 0
             share = cs_laps / len(data)
             kind = None
-            if share >= OS_SHARE:
+            if share >= OS_SHARE and cs_laps >= 2:      # eine einzelne Runde kann ein Ausrutscher sein
                 kind = "over"
             elif resid >= US_RESID and resid > spread:
                 kind = "under"
@@ -973,7 +973,8 @@ def handling(laps: list[dict], max_laps: int = 12, geo: dict | None = None) -> d
                     cause = "entry"
                 if ci + 1 not in totals[(cause, kind)]:
                     totals[(cause, kind)].append(ci + 1)
-                costs[(cause, kind)] += max(0, ph.get("cost_ms") or 0)
+                if ph.get("cost_ms") is not None:
+                    costs[(cause, kind)] = (costs[(cause, kind)] or 0) + max(0, ph["cost_ms"])
             phases.append(ph)
         flags = [p for p in phases if p["kind"]]
         out.append({"no": ci + 1, "apex": round(c["apex"] / n, 4), "start": round(c["start"] / n, 4),
@@ -988,7 +989,7 @@ def handling(laps: list[dict], max_laps: int = 12, geo: dict | None = None) -> d
         findings.append({"key": key, "kind": kind, "title": title, "corners": nos,
                          "weight": len(nos) / len(corners), "cost_ms": costs[(key, kind)], "hints": hints})
     # Was am meisten Zeit kostet zuerst; ohne messbare Kosten nach Häufigkeit
-    findings.sort(key=lambda f: (-f["cost_ms"], -f["weight"]))
+    findings.sort(key=lambda f: (-(f["cost_ms"] or 0), -f["weight"]))
     res.update({"ok": True, "laps_used": len(data), "model": {"c1": round(c1, 3), "c2": round(c2, 4)},
                 "source": {"curvature": "yaw" if data[0]["lap"]["trace"].get("yaw") else "xz",
                            "lateral_g": "measured" if all(d["measured_g"] for d in data) else "computed"},

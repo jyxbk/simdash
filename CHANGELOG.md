@@ -4,6 +4,14 @@ Server/UI and collector have separate version numbers. The collector version is
 in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 `server/static/index.html`.
 
+## UI 0.13.1 — 2026-11-08
+- Verified collector 0.7 on real AC EVO laps (Red Bull Ring): lateral g and yaw
+  rate fill 97 % of the trace, lateral g ≈ speed × yaw rate (r = 0.98), so
+  byte 296 (`localAngularVel`) is right for AC EVO too.
+- Handling: oversteer needs countersteer in at least 2 laps (one lap can be a
+  slip). Time cost is shown as "not measurable yet" below 4 laps instead of
+  "costs nothing".
+
 ## UI 0.13.0 · Collector 0.7.0 — 2026-11-08
 - **Corners from the driven line**: corners now come from speed minima *and*
   the curvature of the line (yaw rate / speed, or x/z). Esses and chicanes are

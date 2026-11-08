@@ -56,7 +56,8 @@ function renderHandling() {
         h("div", { class: "cc-head" }, h("b", {}, f.title),
           h("span", { class: `hd-badge ${f.kind}` }, f.kind === "under" ? "Untersteuern" : "Übersteuern")),
         h("div", { class: "muted-sm" }, `in ${f.corners.map(lbl).join(", ")}`,
-          f.cost_ms >= 30 ? h("b", { class: "hd-cost" }, ` · kostet etwa ${secTxt(f.cost_ms)} pro Runde`) : f.kind === "under" ? " · kostet messbar keine Zeit" : ""),
+          f.cost_ms == null ? " · Zeitkosten erst ab 4 Runden messbar"
+            : f.cost_ms >= 30 ? h("b", { class: "hd-cost" }, ` · kostet etwa ${secTxt(f.cost_ms)} pro Runde`) : " · kostet messbar keine Zeit"),
         h("ul", { class: "cc-tips hd-hints" }, f.hints.map((t) => h("li", {}, t,
           h("button", { class: "hd-note", type: "button", title: "Als Notiz vormerken", onclick: () => noteHint(f, t) }, "＋ Notiz")))))))
     : h("p", { class: "analysis-empty" }, "Kein auffälliges Schieben oder Gegenlenken. Das Auto ist hier ausgewogen, oder die Unterschiede sind kleiner als die Streuung zwischen den Runden.");
