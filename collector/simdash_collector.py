@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 POLL_HZ = 50
 
 log = logging.getLogger("simdash")
@@ -1236,6 +1236,193 @@ class IRacingSource(GameSource):
         return {"vars": len(self.vars)}
 
 
+# ---------------------------------------------------------------------------
+# Automobilista 2 (Project-CARS-2-Schnittstelle, SharedMemory.h Version 14)
+# Im Spiel einschalten: Optionen → System → Shared Memory = „Project CARS 2“.
+# ---------------------------------------------------------------------------
+P2_STR, P2_MAX, P2_TYRES = 64, 64, 4
+
+
+class P2Participant(Structure):
+    _fields_ = [("mIsActive", c_bool), ("mName", ctypes.c_char * P2_STR), ("mWorldPosition", c_float * 3),
+                ("mCurrentLapDistance", c_float), ("mRacePosition", c_uint32), ("mLapsCompleted", c_uint32),
+                ("mCurrentLap", c_uint32), ("mCurrentSector", c_int32)]
+
+
+_T = c_float * P2_TYRES
+_P = c_float * P2_MAX
+
+
+class P2Shared(Structure):
+    _fields_ = [
+        ("mVersion", c_uint32), ("mBuildVersionNumber", c_uint32),
+        ("mGameState", c_uint32), ("mSessionState", c_uint32), ("mRaceState", c_uint32),
+        ("mViewedParticipantIndex", c_int32), ("mNumParticipants", c_int32),
+        ("mParticipantInfo", P2Participant * P2_MAX),
+        ("mUnfilteredThrottle", c_float), ("mUnfilteredBrake", c_float), ("mUnfilteredSteering", c_float), ("mUnfilteredClutch", c_float),
+        ("mCarName", ctypes.c_char * P2_STR), ("mCarClassName", ctypes.c_char * P2_STR),
+        ("mLapsInEvent", c_uint32), ("mTrackLocation", ctypes.c_char * P2_STR), ("mTrackVariation", ctypes.c_char * P2_STR),
+        ("mTrackLength", c_float),
+        ("mNumSectors", c_int32), ("mLapInvalidated", c_bool),
+        ("mBestLapTime", c_float), ("mLastLapTime", c_float), ("mCurrentTime", c_float),
+        ("mSplitTimeAhead", c_float), ("mSplitTimeBehind", c_float), ("mSplitTime", c_float),
+        ("mEventTimeRemaining", c_float), ("mPersonalFastestLapTime", c_float), ("mWorldFastestLapTime", c_float),
+        ("mCurrentSector1Time", c_float), ("mCurrentSector2Time", c_float), ("mCurrentSector3Time", c_float),
+        ("mFastestSector1Time", c_float), ("mFastestSector2Time", c_float), ("mFastestSector3Time", c_float),
+        ("mPersonalFastestSector1Time", c_float), ("mPersonalFastestSector2Time", c_float), ("mPersonalFastestSector3Time", c_float),
+        ("mWorldFastestSector1Time", c_float), ("mWorldFastestSector2Time", c_float), ("mWorldFastestSector3Time", c_float),
+        ("mHighestFlagColour", c_uint32), ("mHighestFlagReason", c_uint32),
+        ("mPitMode", c_uint32), ("mPitSchedule", c_uint32),
+        ("mCarFlags", c_uint32), ("mOilTempCelsius", c_float), ("mOilPressureKPa", c_float),
+        ("mWaterTempCelsius", c_float), ("mWaterPressureKPa", c_float), ("mFuelPressureKPa", c_float),
+        ("mFuelLevel", c_float), ("mFuelCapacity", c_float), ("mSpeed", c_float), ("mRpm", c_float), ("mMaxRPM", c_float),
+        ("mBrake", c_float), ("mThrottle", c_float), ("mClutch", c_float), ("mSteering", c_float),
+        ("mGear", c_int32), ("mNumGears", c_int32), ("mOdometerKM", c_float), ("mAntiLockActive", c_bool),
+        ("mLastOpponentCollisionIndex", c_int32), ("mLastOpponentCollisionMagnitude", c_float),
+        ("mBoostActive", c_bool), ("mBoostAmount", c_float),
+        ("mOrientation", c_float * 3), ("mLocalVelocity", c_float * 3), ("mWorldVelocity", c_float * 3),
+        ("mAngularVelocity", c_float * 3), ("mLocalAcceleration", c_float * 3), ("mWorldAcceleration", c_float * 3),
+        ("mExtentsCentre", c_float * 3),
+        ("mTyreFlags", c_uint32 * P2_TYRES), ("mTerrain", c_uint32 * P2_TYRES), ("mTyreY", _T), ("mTyreRPS", _T),
+        ("mTyreSlipSpeed", _T), ("mTyreTemp", _T), ("mTyreGrip", _T), ("mTyreHeightAboveGround", _T),
+        ("mTyreLateralStiffness", _T), ("mTyreWear", _T), ("mBrakeDamage", _T), ("mSuspensionDamage", _T),
+        ("mBrakeTempCelsius", _T), ("mTyreTreadTemp", _T), ("mTyreLayerTemp", _T), ("mTyreCarcassTemp", _T),
+        ("mTyreRimTemp", _T), ("mTyreInternalAirTemp", _T),
+        ("mCrashState", c_uint32), ("mAeroDamage", c_float), ("mEngineDamage", c_float),
+        ("mAmbientTemperature", c_float), ("mTrackTemperature", c_float), ("mRainDensity", c_float),
+        ("mWindSpeed", c_float), ("mWindDirectionX", c_float), ("mWindDirectionY", c_float), ("mCloudBrightness", c_float),
+        ("mSequenceNumber", c_uint32),
+        ("mWheelLocalPositionY", _T), ("mSuspensionTravel", _T), ("mSuspensionVelocity", _T), ("mAirPressure", _T),
+        ("mEngineSpeed", c_float), ("mEngineTorque", c_float), ("mWings", c_float * 2), ("mHandBrake", c_float),
+        ("mCurrentSector1Times", _P), ("mCurrentSector2Times", _P), ("mCurrentSector3Times", _P),
+        ("mFastestSector1Times", _P), ("mFastestSector2Times", _P), ("mFastestSector3Times", _P),
+        ("mFastestLapTimes", _P), ("mLastLapTimes", _P), ("mLapsInvalidated", c_bool * P2_MAX),
+        ("mRaceStates", c_uint32 * P2_MAX), ("mPitModes", c_uint32 * P2_MAX), ("mOrientations", (c_float * 3) * P2_MAX),
+        ("mSpeeds", _P), ("mCarNames", (ctypes.c_char * P2_STR) * P2_MAX), ("mCarClassNames", (ctypes.c_char * P2_STR) * P2_MAX),
+        ("mEnforcedPitStopLap", c_int32), ("mTranslatedTrackLocation", ctypes.c_char * P2_STR),
+        ("mTranslatedTrackVariation", ctypes.c_char * P2_STR), ("mBrakeBias", c_float), ("mTurboBoostPressure", c_float),
+        ("mTyreCompound", (ctypes.c_char * 40) * P2_TYRES), ("mPitSchedules", c_uint32 * P2_MAX),
+        ("mHighestFlagColours", c_uint32 * P2_MAX), ("mHighestFlagReasons", c_uint32 * P2_MAX),
+        ("mNationalities", c_uint32 * P2_MAX), ("mSnowDensity", c_float),
+        ("mSessionDuration", c_float), ("mSessionAdditionalLaps", c_int32),
+        ("mTyreTempLeft", _T), ("mTyreTempCenter", _T), ("mTyreTempRight", _T),
+        ("mDrsState", c_uint32), ("mRideHeight", _T), ("mJoyPad0", c_uint32), ("mDPad", c_uint32),
+        ("mAntiLockSetting", c_int32), ("mTractionControlSetting", c_int32),
+        ("mErsDeploymentMode", c_int32), ("mErsAutoModeEnabled", c_bool),
+        ("mClutchTemp", c_float), ("mClutchWear", c_float), ("mClutchOverheated", c_bool), ("mClutchSlipping", c_bool),
+        ("mYellowFlagState", c_int32), ("mSessionIsPrivate", c_bool), ("mLaunchStage", c_int32),
+    ]
+
+
+P2_SESSIONS = {1: "practice", 2: "testing", 3: "qualify", 4: "formation", 5: "race", 6: "time_attack"}
+P2_GAME_PLAYING, P2_GAME_PAUSED, P2_GAME_MENU_TICKING, P2_GAME_REPLAY, P2_GAME_FE_REPLAY = 2, 3, 4, 6, 7
+
+
+def bstr(b) -> str:
+    return bytes(b).split(b"\x00", 1)[0].decode("utf-8", "ignore").strip()
+
+
+class Ams2Source(GameSource):
+    """Automobilista 2 über den Project-CARS-2-Speicher „$pcars2$“. Gültigkeit vom Spiel
+    (mLapInvalidated), Position/Geschwindigkeiten/Gierrate direkt aus der Physik."""
+    game = "ams2"
+    settle_s = 2.0
+
+    def __init__(self, processes: dict[str, str] | None = None):
+        self.m = NamedMapping("$pcars2$")
+        self.processes = processes or {}
+        self.sess_n, self.prev_laps, self.prev_state = 0, None, None
+
+    def available(self) -> bool:
+        if not self.m.open():
+            return False
+        d = self.read()
+        if d is None or not (9 <= d.mVersion <= 30):
+            self.close()
+            return False
+        return True
+
+    def close(self) -> None:
+        self.m.close()
+
+    def read(self) -> P2Shared | None:
+        """Konsistente Kopie: Sequenznummer ist ungerade, solange das Spiel schreibt."""
+        d = None
+        for _ in range(4):
+            d = self.m.read(P2Shared)
+            if d.mSequenceNumber % 2 == 0:
+                return d
+            time.sleep(0.001)
+        return d
+
+    def snapshot(self) -> Snapshot:
+        d = self.read()
+        gs = d.mGameState
+        if gs == P2_GAME_PLAYING:
+            status = STATUS_LIVE
+        elif gs in (P2_GAME_PAUSED, P2_GAME_MENU_TICKING):
+            status = STATUS_PAUSE
+        elif gs in (P2_GAME_REPLAY, P2_GAME_FE_REPLAY):
+            status = STATUS_REPLAY
+        else:
+            status = STATUS_OFF
+        i = d.mViewedParticipantIndex if 0 <= d.mViewedParticipantIndex < P2_MAX else 0
+        me = d.mParticipantInfo[i]
+        laps = int(me.mLapsCompleted)
+        # Keine Session-ID im Speicher: neue Session, wenn der Rundenzähler zurückspringt
+        # oder die Sessionart wechselt (z. B. Training → Quali, Neustart)
+        if (self.prev_laps is not None and laps < self.prev_laps) or (self.prev_state not in (None, d.mSessionState)):
+            self.sess_n += 1
+        self.prev_laps, self.prev_state = laps, d.mSessionState
+        length = d.mTrackLength
+        npos = (me.mCurrentLapDistance / length) if length > 0 else 0.0
+        return Snapshot(
+            game=self.game, status=status, packet_id=int(d.mSequenceNumber),
+            lap_count=laps,
+            current_ms=int(d.mCurrentTime * 1000) if d.mCurrentTime > 0 else 0,
+            last_ms=int(d.mLastLapTime * 1000) if d.mLastLapTime > 0 else -1,
+            best_ms=int(d.mBestLapTime * 1000) if d.mBestLapTime > 0 else -1,
+            valid_now=not d.mLapInvalidated,
+            npos=min(max(npos, 0.0), 1.0), in_pit_lane=d.mPitMode != 0,
+            track=bstr(d.mTrackLocation) or "unbekannt", layout=bstr(d.mTrackVariation),
+            car=bstr(d.mCarName) or "unbekannt",
+            session_type=P2_SESSIONS.get(d.mSessionState, str(d.mSessionState)),
+            driver=bstr(me.mName), session_id=f"{d.mSessionState}:{self.sess_n}",
+            speed_kmh=d.mSpeed * 3.6, throttle=clamp01(d.mThrottle), brake=clamp01(d.mBrake),
+            pos_x=float(me.mWorldPosition[0]), pos_z=float(me.mWorldPosition[2]),
+            gear=int(d.mGear), rpm=int(d.mRpm),
+            rpm_pct=clamp01(d.mRpm / d.mMaxRPM) if d.mMaxRPM > 0 else None,
+            tele=self.tele(d),
+        )
+
+    def tele(self, d: P2Shared) -> dict:
+        g0 = 9.80665
+        T = lambda arr, nd=0: [_r(v, nd) for v in arr]
+        nz = lambda arr: arr if any(v for v in arr if v) else None
+        fuel = d.mFuelLevel * d.mFuelCapacity if d.mFuelCapacity > 0 else None
+        return {
+            "g": [_r(d.mLocalAcceleration[0] / g0, 2), _r(d.mLocalAcceleration[2] / g0, 2)],   # quer, längs
+            "steer": _r(d.mSteering, 3),
+            "yaw": _r(d.mAngularVelocity[1], 3),
+            "fuel": _r(fuel), "water": _r(d.mWaterTempCelsius, 0), "oil": _r(d.mOilTempCelsius, 0),
+            "oil_p": _r(d.mOilPressureKPa / 100, 2) if d.mOilPressureKPa > 0 else None,
+            "tp": nz(T(d.mAirPressure, 1)), "tc": nz(T(d.mTyreTemp)),
+            "ti": nz(T(d.mTyreTempLeft)), "tm": nz(T(d.mTyreTempCenter)), "to": nz(T(d.mTyreTempRight)),
+            "bt": nz(T(d.mBrakeTempCelsius)),
+            "bb": _r(d.mBrakeBias, 3) if 0.2 < d.mBrakeBias < 0.9 else None,
+            "abs_on": bool(d.mAntiLockActive),
+            "tc_lvl": d.mTractionControlSetting if d.mTractionControlSetting >= 0 else None,
+            "abs_lvl": d.mAntiLockSetting if d.mAntiLockSetting >= 0 else None,
+            "max_rpm": int(d.mMaxRPM) if d.mMaxRPM > 0 else None,
+            "torque": _r(d.mEngineTorque, 0) if d.mEngineTorque > 0 else None,
+            "compound": bstr(d.mTyreCompound[0]) or None,
+        }
+
+    def info(self) -> dict:
+        d = self.read()
+        return {"sm_version": d.mVersion if d else None, "build": d.mBuildVersionNumber if d else None}
+
+
 def running_processes() -> set[str]:
     try:
         out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True,
@@ -1457,6 +1644,10 @@ def selftest() -> None:
         print(f"  AccGraphics.{name:22s} @ {getattr(AccGraphics, name).offset}")
     for name in ("carModel", "track", "trackConfiguration", "isOnline"):
         print(f"  AcStatic.{name:25s} @ {getattr(AcStatic, name).offset}")
+    print(f"P2Shared     {ctypes.sizeof(P2Shared):6d} Byte (AMS2)")
+    for name in ("mParticipantInfo", "mUnfilteredThrottle", "mTrackLength", "mLapInvalidated", "mLastLapTime",
+                 "mSpeed", "mGear", "mAngularVelocity", "mSequenceNumber", "mLaunchStage"):
+        print(f"  P2Shared.{name:25s} @ {getattr(P2Shared, name).offset}")
 
 
 def main() -> None:
@@ -1495,7 +1686,7 @@ def main() -> None:
         live = LiveSender(cfg["server"]["url"], cfg["server"]["token"], cfg.getfloat("live", "hz", fallback=10))
         live.start()
 
-    sources = [AcEvoSource(), IRacingSource(), AcFamilySource(processes)]
+    sources = [AcEvoSource(), IRacingSource(), Ams2Source(), AcFamilySource(processes)]
     detector = LapDetector()
     active: GameSource | None = None
     last_packet, last_packet_change = None, time.monotonic()

@@ -62,6 +62,7 @@ mirrors the car live on a second screen or your phone.
 | Assetto Corsa (2014) | `Local\acpmf_*` | not reported | ✓ / ✓ | physics block |
 | Assetto Corsa Rally | `Local\acpmf_*` (ACC layout) | unknown | ✓ / ✓ | experimental |
 | iRacing | iRacing SDK memory map | derived (4 wheels off / incident = invalid) | ✓ / – (no world position) | inputs, G, fuel, temperatures |
+| Automobilista 2 | `$pcars2$` (Project CARS 2 API, enable in *Options → System → Shared Memory*) | from game | ✓ / ✓ | inputs, G, yaw, fuel, tyres, brakes, TC/ABS |
 
 AC EVO has been tested most in real driving. The others are implemented from
 the official documentation and tested less.

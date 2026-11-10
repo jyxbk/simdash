@@ -236,3 +236,67 @@ def test_build_trace_lateral_g_and_yaw():
     assert tr["ay"][400] == 1.2 and tr["yaw"][400] == 0.35
     tr = sc.build_trace([s[:9] for s in samples])          # ältere Proben ohne die Werte
     assert tr["ay"] is None and tr["yaw"] is None
+
+
+class _FakeMap:
+    def __init__(self, d):
+        self.d = d
+
+    def read(self, _t):
+        return self.d
+
+    def open(self):
+        return True
+
+    def close(self):
+        pass
+
+
+def _p2(**kw):
+    d = sc.P2Shared()
+    d.mVersion, d.mGameState, d.mSessionState, d.mViewedParticipantIndex = 14, 2, 1, 0
+    me = d.mParticipantInfo[0]
+    me.mName = b"Alex"
+    me.mCurrentLapDistance, me.mLapsCompleted = 1000.0, 3
+    me.mWorldPosition[0], me.mWorldPosition[2] = 12.5, -40.0
+    d.mTrackLength = 4000.0
+    d.mTrackLocation, d.mTrackVariation, d.mCarName = b"Interlagos", b"GP", b"Formula Classic"
+    d.mCurrentTime, d.mLastLapTime, d.mBestLapTime = 21.5, 80.25, 79.9
+    d.mSpeed, d.mThrottle, d.mBrake, d.mSteering, d.mGear, d.mRpm, d.mMaxRPM = 50.0, 0.8, 0.0, -0.2, 4, 9000, 10000
+    d.mAngularVelocity[1], d.mLocalAcceleration[0] = 0.4, 19.6
+    d.mFuelLevel, d.mFuelCapacity, d.mSequenceNumber = 0.5, 100.0, 42
+    for k, v in kw.items():
+        setattr(d, k, v)
+    return d
+
+
+def test_ams2_snapshot():
+    src = sc.Ams2Source()
+    src.m = _FakeMap(_p2())
+    s = src.snapshot()
+    assert (s.game, s.status, s.track, s.layout, s.car, s.driver) == ("ams2", sc.STATUS_LIVE, "Interlagos", "GP", "Formula Classic", "Alex")
+    assert s.lap_count == 3 and s.current_ms == 21500 and s.last_ms == 80250 and s.best_ms == 79900
+    assert abs(s.npos - 0.25) < 1e-6 and s.valid_now is True and not s.in_pit_lane
+    assert s.speed_kmh == 180.0 and s.gear == 4 and s.pos_x == 12.5 and s.pos_z == -40.0 and s.session_type == "practice"
+    assert s.tele["yaw"] == 0.4 and s.tele["fuel"] == 50.0 and abs(s.tele["g"][0] - 2.0) < 0.01
+    # Rundenzähler springt zurück (Neustart) → neue Session
+    sid = s.session_id
+    me = src.m.d.mParticipantInfo[0]
+    me.mLapsCompleted = 0
+    assert src.snapshot().session_id != sid
+    # Pause, ungültige Runde, Box
+    src.m.d.mGameState, src.m.d.mLapInvalidated, src.m.d.mPitMode = 3, True, 2
+    s = src.snapshot()
+    assert s.status == sc.STATUS_PAUSE and s.valid_now is False and s.in_pit_lane
+
+
+def test_ams2_layout_offsets():
+    # Bekannte Offsets der pCARS2/AMS2-Schnittstelle (SharedMemory.h, Version 14)
+    P = sc.P2Shared
+    assert P.mParticipantInfo.offset == 28 and ctypes_size(sc.P2Participant) == 100
+    assert P.mUnfilteredThrottle.offset == 6428 and P.mTrackLength.offset == 6704 and P.mLapInvalidated.offset == 6712
+
+
+def ctypes_size(t):
+    import ctypes
+    return ctypes.sizeof(t)

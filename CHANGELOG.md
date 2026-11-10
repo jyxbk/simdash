@@ -4,6 +4,16 @@ Server/UI and collector have separate version numbers. The collector version is
 in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 `server/static/index.html`.
 
+## UI 0.15.0 · Collector 0.8.0 — 2026-11-10
+- **Automobilista 2** (`ams2`): read through the Project CARS 2 shared memory
+  (`$pcars2$`, SharedMemory.h version 14). Lap times, validity
+  (`mLapInvalidated`), pit lane, position on track, world position (track map),
+  speed, pedals, gear, rpm, steering, lateral g and yaw rate (coach and
+  handling), fuel, tyre/brake temperatures, tyre pressures, brake bias,
+  TC/ABS settings. Consistent reads via `mSequenceNumber`. No session id in the
+  API: a new session starts when the lap counter goes back or the session type
+  changes. **In AMS2: Options → System → Shared Memory = "Project CARS 2".**
+
 ## UI 0.14.1 — 2026-11-08
 - On phones (narrow, or landscape with little height) the live tab *is* the
   cockpit. "Details" shows the full live view, "⛶ Cockpit" goes back,
