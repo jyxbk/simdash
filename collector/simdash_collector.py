@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "0.8.0"
+VERSION = "0.8.1"
 POLL_HZ = 50
 
 log = logging.getLogger("simdash")
@@ -1423,6 +1423,30 @@ class Ams2Source(GameSource):
         return {"sm_version": d.mVersion if d else None, "build": d.mBuildVersionNumber if d else None}
 
 
+# Ein Spiel, das keine neuen Daten mehr liefert, wird so lange übersprungen. Grund: Tools wie
+# SimHub halten die Mapping-Namen eines Spiels offen, auch wenn es nicht läuft. Ohne Pause
+# würde die zuerst geprüfte Quelle (AC EVO) jedes Mal wieder gewählt und ACC nie erreicht.
+STALE_SKIP_S = 30.0
+
+
+def pick_source(sources: list, stale_until: dict, now: float):
+    """Erste verfügbare Quelle, die nicht gerade pausiert ist; sonst erste verfügbare pausierte."""
+    fallback = None
+    for src in sources:
+        if not src.available():
+            continue
+        if stale_until.get(id(src), 0.0) > now:
+            if fallback is None:
+                fallback = src
+            else:
+                src.close()
+            continue
+        if fallback is not None:
+            fallback.close()
+        return src
+    return fallback
+
+
 def running_processes() -> set[str]:
     try:
         out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True,
@@ -1689,6 +1713,7 @@ def main() -> None:
     sources = [AcEvoSource(), IRacingSource(), Ams2Source(), AcFamilySource(processes)]
     detector = LapDetector()
     active: GameSource | None = None
+    stale_until: dict[int, float] = {}   # id(Quelle) -> bis wann überspringen (keine neuen Daten)
     last_packet, last_packet_change = None, time.monotonic()
     announced = None      # zuletzt gemeldetes Spiel – nur Wechsel ins Log
     idle_logged = False   # "keine neuen Daten" nur einmal melden (EVO-Menü schreibt nichts)
@@ -1708,15 +1733,14 @@ def main() -> None:
     while True:
         try:
             if active is None:
-                for src in sources:
-                    if src.available():
-                        active = src
-                        detector = LapDetector(settle_s=getattr(src, "settle_s", None))
-                        if announced is not src:
-                            log.info("Spiel erkannt: %s %s", type(src).__name__, src.info())
-                            announced = src
-                        last_packet, last_packet_change = None, time.monotonic()
-                        break
+                src = pick_source(sources, stale_until, time.monotonic())
+                if src is not None:
+                    active = src
+                    detector = LapDetector(settle_s=getattr(src, "settle_s", None))
+                    if announced is not src:
+                        log.info("Spiel erkannt: %s %s", type(src).__name__, src.info())
+                        announced = src
+                    last_packet, last_packet_change = None, time.monotonic()
                 if active is None:
                     announced = None      # kein Spiel mehr da -> nächstes Mal wieder melden
                     if live:
@@ -1735,6 +1759,7 @@ def main() -> None:
                 if not idle_logged:
                     log.info("Keine neuen Daten von %s (Menü oder beendet) – warte", snap.game)
                     idle_logged = True
+                stale_until[id(active)] = time.monotonic() + STALE_SKIP_S
                 active.close()
                 active = None
                 detector = LapDetector()

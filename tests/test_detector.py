@@ -300,3 +300,35 @@ def test_ams2_layout_offsets():
 def ctypes_size(t):
     import ctypes
     return ctypes.sizeof(t)
+
+
+class FakeSource:
+    def __init__(self, name, avail=True):
+        self.name, self.avail, self.closed = name, avail, 0
+
+    def available(self):
+        return self.avail
+
+    def close(self):
+        self.closed += 1
+
+
+def test_pick_source_skips_stale_evo_for_acc():
+    # SimHub hält die EVO-Mappings offen, ACC läuft wirklich: ACC muss gewählt werden.
+    evo, acc = FakeSource("evo"), FakeSource("acc")
+    stale = {id(evo): 100.0}
+    assert sc.pick_source([evo, acc], stale, now=50.0) is acc
+    assert evo.closed == 1
+
+
+def test_pick_source_falls_back_to_stale_when_nothing_else():
+    # Nur EVO da (z. B. Menü): trotzdem weiter beobachten, damit eine neue Fahrt erkannt wird.
+    evo, acc = FakeSource("evo"), FakeSource("acc", avail=False)
+    assert sc.pick_source([evo, acc], {id(evo): 100.0}, now=50.0) is evo
+    assert evo.closed == 0
+
+
+def test_pick_source_order_after_pause():
+    evo, acc = FakeSource("evo"), FakeSource("acc")
+    assert sc.pick_source([evo, acc], {id(evo): 100.0}, now=150.0) is evo
+    assert sc.pick_source([FakeSource("x", False)], {}, now=0.0) is None

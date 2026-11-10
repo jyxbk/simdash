@@ -4,6 +4,14 @@ Server/UI and collector have separate version numbers. The collector version is
 in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 `server/static/index.html`.
 
+## Collector 0.8.1 — 2026-11-11
+- **Fix: ACC was never detected while SimHub was running.** SimHub keeps the
+  AC EVO shared memory names open even when AC EVO is closed. The collector
+  checks AC EVO first, so it picked the stale EVO memory again and again and
+  never reached ACC. A game that stops delivering new data is now skipped for
+  30 s (`STALE_SKIP_S`) and the other games are checked first; if nothing else
+  is running, the stale game is still watched so a new drive is picked up.
+
 ## UI 0.15.0 · Collector 0.8.0 — 2026-11-10
 - **Automobilista 2** (`ams2`): read through the Project CARS 2 shared memory
   (`$pcars2$`, SharedMemory.h version 14). Lap times, validity
