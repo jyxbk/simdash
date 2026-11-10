@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "0.9.0"
+VERSION = "0.9.1"
 POLL_HZ = 50
 
 log = logging.getLogger("simdash")
@@ -657,6 +657,7 @@ class LapDetector:
     def _new_lap_state(self, snap: Snapshot | None) -> None:
         self.lap_invalid = False
         self.lap_valid_known = False
+        self.invalid_at: float | None = None      # Streckenposition, an der die Runde ungültig wurde
         self.lap_started_in_pit = bool(snap and snap.in_pit_lane)
         self.lap_max_current = 0
         self.lap_start_incidents = snap.incidents if snap else None
@@ -674,7 +675,10 @@ class LapDetector:
                 note = f"+{inc}x Incidents"
                 # iRacing wertet Runden mit Incident (Off-Track, Kontakt) nicht für die Bestzeit
                 self.lap_invalid = self.lap_valid_known = True
-        return Lap(note=note, trace=build_trace(self.samples), stats=self.stats.result(),
+        trace = build_trace(self.samples)
+        if trace is not None and self.invalid_at is not None and 0 <= self.invalid_at <= 1:
+            trace["inv_at"] = round(self.invalid_at, 4)
+        return Lap(note=note, trace=trace, stats=self.stats.result(),
             game=ref.game, track=ref.track, layout=ref.layout, car=ref.car,
             session_uid=self.session_uid, session_type=ref.session_type,
             lap_number=lap_number, lap_time_ms=int(time_ms),
@@ -752,6 +756,8 @@ class LapDetector:
             if s.valid_now is not None and s.current_ms >= self.VALID_GRACE_MS:
                 self.lap_valid_known = True
                 if not s.valid_now:
+                    if not self.lap_invalid:
+                        self.invalid_at = s.npos
                     self.lap_invalid = True
             self.lap_max_current = max(self.lap_max_current, s.current_ms)
             if s.current_ms > 0:

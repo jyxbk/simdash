@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 import coach
+import safety
 
 BASE = Path(__file__).resolve().parent
 DB_PATH = Path(os.environ.get("SIMDASH_DB", BASE / "simdash.db"))
@@ -136,6 +137,7 @@ class Trace(BaseModel):
     yaw: list[float | None] | None = Field(default=None, max_length=1000) # Gierrate (rad/s)
     abs: list[int | None] | None = Field(default=None, max_length=1000)   # ABS greift ein (0/1)
     tcx: list[int | None] | None = Field(default=None, max_length=1000)   # TC greift ein (0/1)
+    inv_at: float | None = Field(default=None, ge=0, le=1)                # wo die Runde ungültig wurde (0..1)
 
 
 class LapIn(BaseModel):
@@ -503,6 +505,54 @@ def bests(game: str | None = None, track: str | None = None, car: str | None = N
                 "best_any": row_to_lap(best_any) if best_any else None,
             })
     return out
+
+
+_SAFETY_CACHE: dict = {}
+
+
+def _corner_info(game: str, track: str, layout: str, cache: dict) -> tuple[int, list[float] | None]:
+    key = (game, track, layout)
+    if key not in cache:
+        geo = track_geometry(game, track, layout)
+        info = (10, None)                                   # ohne Verlauf: grobe Annahme
+        if geo:
+            n = len(geo["trace"].get("t") or [])
+            length = coach.track_length(geo)
+            try:
+                cs = coach.detect_corners(geo, n, length / n if n and length else None)
+            except Exception:                               # Auswertung darf nie am Rating scheitern
+                cs = []
+            if cs:
+                info = (len(cs), sorted(c["start"] / n for c in cs))
+            elif length:
+                info = (max(4, round(length / 450)), None)
+        cache[key] = info
+    return cache[key]
+
+
+@app.get("/api/safety")
+def safety_view(driver: str | None = None) -> dict:
+    """Safety Rating je Fahrer (iRacing-Vorbild): Klasse, Rating, Verlauf je Session, Zwischenfälle."""
+    with db() as con:
+        sig = con.execute("SELECT COUNT(*), MAX(id), (SELECT COUNT(*) FROM lap_traces) FROM laps").fetchone()
+        sig = tuple(sig) + (driver,)
+        hit = _SAFETY_CACHE.get("res")
+        if hit and hit[0] == sig:
+            return hit[1]
+        q = """SELECT l.*, t.data AS trace FROM laps l LEFT JOIN lap_traces t ON t.uid = l.uid"""
+        rows = con.execute(q + (" WHERE l.driver=?" if driver else ""), (driver,) if driver else ()).fetchall()
+    by: dict[str, list[dict]] = {}
+    for r in rows:
+        d = dict(r)
+        tr = d.pop("trace")
+        lap = row_to_lap(d)
+        lap["trace"] = json.loads(tr) if tr else None
+        by.setdefault(lap["driver"] or "?", []).append(lap)
+    cache: dict = {}
+    corners_for = lambda l: _corner_info(l["game"], l["track"], l.get("layout") or "", cache)
+    res = {"rules": safety.RULES, "drivers": {name: safety.compute(ls, corners_for) for name, ls in by.items()}}
+    _SAFETY_CACHE["res"] = (sig, res)
+    return res
 
 
 @app.get("/api/lapstats")

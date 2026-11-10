@@ -4,6 +4,18 @@ Server/UI and collector have separate version numbers. The collector version is
 in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 `server/static/index.html`.
 
+## Server · Collector 0.9.1 — 2026-11-11
+- **Safety Rating** modelled on iRacing (own formulas): incident points per
+  corner (CPI), license classes R/D/C/B/A with 0.00–4.99, the rating moves
+  per session towards the session's target (longer sessions weigh more),
+  promotion at 4.00 after at least 3 sessions in the class (rating −1.00),
+  demotion below 1.00 (back to 2.50). Higher classes need a better CPI.
+  Incidents: invalid lap 1x, loss of control/off 2x, impact 4x (from the
+  speed trace), iRacing laps use the game's own incident points.
+  `GET /api/safety[?driver=]`, module `server/safety.py`.
+- Collector 0.9.1: the trace stores where a lap became invalid (`inv_at`),
+  so invalid laps can be tied to a corner.
+
 ## Collector 0.9.0 — 2026-11-11
 - **Per-lap car data** (`stats`): average tyre pressure, core temperature and
   inner/middle/outer temperature per wheel, brake temperature (average and

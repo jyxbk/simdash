@@ -70,6 +70,9 @@ def resample(trace: dict, n: int) -> dict:
         return trace
     out = {"step": 1 / n}
     for k, arr in trace.items():
+        if k != "step" and not isinstance(arr, list):
+            out[k] = arr                       # Einzelwerte (z. B. inv_at) bleiben erhalten
+            continue
         if not isinstance(arr, list) or len(arr) != m:
             continue
         res = []
