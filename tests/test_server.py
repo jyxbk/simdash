@@ -221,3 +221,21 @@ def test_corner_names(client):
     assert res["corners"][0]["name"] == "Turn 1" and "name" not in res["corners"][1]
     client.post("/api/corners", json={**base, "npos": 0.21, "name": ""})        # löschen
     assert [n["name"] for n in client.get("/api/corners", params=base).json()] == ["Turn 1"]
+
+
+def test_lap_stats_roundtrip(client):
+    st = {"samples": 900, "tp": [27.6, 27.9, 27.1, 26.4], "ti": [86, 80, 82, 79], "tm": [82, 84, 81, 80],
+          "to": [78, 85, 80, 81], "bt_max": [610, 600, 420, 430], "bb": 0.565, "abs_pct": 3.2, "tc_pct": 1.1,
+          "abs_lvl": 4, "tc_lvl": 3}
+    tr = {"step": 0.005, "t": [i * 400 for i in range(200)], "abs": [0] * 199 + [1], "tcx": [0] * 200}
+    r = client.post("/api/laps", json=[lap("stats0001", 81000, stats=st, trace=tr), lap("stats0002", 82000)], headers=AUTH)
+    assert r.json()["added"] == 2
+    rows = client.get("/api/lapstats", params={"game": "acevo", "track": "road_atlanta", "car": "bmw_m4_gt3"}).json()
+    assert len(rows) == 1 and rows[0]["stats"]["tp"][3] == 26.4 and rows[0]["valid"] is True
+    t = client.get("/api/traces", params={"game": "acevo", "track": "road_atlanta", "car": "bmw_m4_gt3"}).json()
+    assert t[0]["trace"]["abs"][-1] == 1
+
+
+def test_lap_stats_too_big_rejected(client):
+    r = client.post("/api/laps", json=[lap("stats0003", 81000, stats={"x": "y" * 5000})], headers=AUTH)
+    assert r.status_code == 422

@@ -79,7 +79,7 @@ def resample(trace: dict, n: int) -> dict:
             hi = min(lo + 1, m - 1)
             f = pos - lo
             a, b = arr[lo], arr[hi]
-            if k == "g":
+            if k in ("g", "abs", "tcx"):         # Gang und Ein/Aus-Werte nicht mitteln
                 res.append(a if f < 0.5 or b is None else b)
             elif a is None or b is None or hi == lo:
                 res.append(a if f < 0.5 else (b if hi != lo else a))

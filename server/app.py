@@ -15,13 +15,13 @@ import time
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi import Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 import coach
 
@@ -96,6 +96,11 @@ CREATE TABLE IF NOT EXISTS lap_traces (
     uid   TEXT PRIMARY KEY REFERENCES laps(uid) ON DELETE CASCADE,
     data  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS lap_stats (
+    uid   TEXT PRIMARY KEY REFERENCES laps(uid) ON DELETE CASCADE,
+    data  TEXT NOT NULL
+);
 """
 
 
@@ -129,6 +134,8 @@ class Trace(BaseModel):
     st: list[float | None] | None = Field(default=None, max_length=1000)  # Lenkung −1..1
     ay: list[float | None] | None = Field(default=None, max_length=1000)  # Querbeschleunigung (g)
     yaw: list[float | None] | None = Field(default=None, max_length=1000) # Gierrate (rad/s)
+    abs: list[int | None] | None = Field(default=None, max_length=1000)   # ABS greift ein (0/1)
+    tcx: list[int | None] | None = Field(default=None, max_length=1000)   # TC greift ein (0/1)
 
 
 class LapIn(BaseModel):
@@ -150,7 +157,15 @@ class LapIn(BaseModel):
     driver: str = Field(default="", max_length=80)
     note: str = Field(default="", max_length=200)
     trace: Trace | None = None
+    stats: dict[str, Any] | None = None   # Reifen/Bremsen/Elektronik je Runde (Collector >= 0.9)
     recorded_at: datetime
+
+    @field_validator("stats")
+    @classmethod
+    def _stats_small(cls, v):
+        if v is not None and len(json.dumps(v)) > 4000:
+            raise ValueError("stats zu groß")
+        return v
 
 
 class NoteIn(BaseModel):
@@ -421,6 +436,9 @@ def add_laps(laps: list[LapIn]) -> dict:
             if cur.rowcount and lap.trace:
                 con.execute("INSERT OR REPLACE INTO lap_traces (uid, data) VALUES (?, ?)",
                             (lap.uid, lap.trace.model_dump_json()))
+            if cur.rowcount and lap.stats:
+                con.execute("INSERT OR REPLACE INTO lap_stats (uid, data) VALUES (?, ?)",
+                            (lap.uid, json.dumps(lap.stats)))
     return {"received": len(laps), "added": added}
 
 
@@ -484,6 +502,29 @@ def bests(game: str | None = None, track: str | None = None, car: str | None = N
                 "best_valid": row_to_lap(best_valid) if best_valid else None,
                 "best_any": row_to_lap(best_any) if best_any else None,
             })
+    return out
+
+
+@app.get("/api/lapstats")
+def lap_stats(game: str, track: str, car: str, layout: str = "", driver: str | None = None,
+              limit: int = Query(default=200, ge=1, le=1000)) -> list[dict]:
+    """Reifen/Bremsen/Elektronik je Runde für eine Kombination (neueste zuerst)."""
+    with db() as con:
+        rows = con.execute(
+            f"""SELECT l.id, l.uid, l.session_uid, l.lap_number, l.lap_time_ms, l.valid, l.outlap, l.inlap,
+                       l.recorded_at, l.driver, s.data FROM laps l JOIN lap_stats s ON s.uid = l.uid
+               WHERE l.game=? AND l.track=? AND l.layout=? AND l.car=?{" AND l.driver=?" if driver else ""}
+               ORDER BY l.recorded_at DESC LIMIT ?""",
+            (game, track, layout, car, *((driver,) if driver else ()), limit),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["stats"] = json.loads(d.pop("data"))
+        d["valid"] = None if d["valid"] is None else bool(d["valid"])
+        for k in ("outlap", "inlap"):
+            d[k] = bool(d[k])
+        out.append(d)
     return out
 
 
@@ -790,6 +831,7 @@ def set_note(lap_id: int, body: NoteIn) -> dict:
 def delete_lap(lap_id: int) -> dict:
     with db() as con:
         con.execute("DELETE FROM lap_traces WHERE uid=(SELECT uid FROM laps WHERE id=?)", (lap_id,))
+        con.execute("DELETE FROM lap_stats WHERE uid=(SELECT uid FROM laps WHERE id=?)", (lap_id,))
         cur = con.execute("DELETE FROM laps WHERE id=?", (lap_id,))
     if not cur.rowcount:
         raise HTTPException(404, "Runde nicht gefunden")

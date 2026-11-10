@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import configparser
 import csv
+import collections
 import ctypes
 import json
 import logging
@@ -33,7 +34,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "0.8.1"
+VERSION = "0.9.0"
 POLL_HZ = 50
 
 log = logging.getLogger("simdash")
@@ -475,11 +476,11 @@ def build_trace(samples: list[tuple]) -> dict | None:
             continue
         if n <= last_n:
             continue
-        pts.append(tuple(smp) + (None,) * (11 - len(smp)))
+        pts.append(tuple(smp) + (None,) * (13 - len(smp)))
         last_n = n
     if len(pts) < 20 or pts[-1][0] - pts[0][0] < 0.5:
         return None
-    keys = ("t", "v", "thr", "brk", "x", "z", "g", "st", "ay", "yaw")
+    keys = ("t", "v", "thr", "brk", "x", "z", "g", "st", "ay", "yaw", "abs", "tcx")
     out = {"step": TRACE_STEP, **{k: [] for k in keys}}
     j = 0
     for i in range(int(round(1 / TRACE_STEP))):
@@ -509,7 +510,11 @@ def build_trace(samples: list[tuple]) -> dict | None:
         out["st"].append(lerp(8, 1.0, 2) if a[8] is not None and b[8] is not None else None)
         out["ay"].append(lerp(9, 1.0, 2) if a[9] is not None and b[9] is not None else None)     # Quer-g
         out["yaw"].append(lerp(10, 1.0, 3) if a[10] is not None and b[10] is not None else None)  # rad/s
-    for k in ("v", "thr", "brk", "x", "z", "g", "st", "ay", "yaw"):
+        # ABS/TC greift ein (0/1): an einem Rasterpunkt zählt, wenn einer der beiden Nachbarn eingreift
+        for k, idx in (("abs", 11), ("tcx", 12)):
+            av, bv = a[idx], b[idx]
+            out[k].append(None if av is None and bv is None else int(bool(av) or bool(bv)))
+    for k in ("v", "thr", "brk", "x", "z", "g", "st", "ay", "yaw", "abs", "tcx"):
         if all(x is None for x in out[k]):
             out[k] = None
     return out
@@ -536,6 +541,7 @@ class Lap:
     sectors: list[int] | None = None
     note: str = ""
     trace: dict | None = None
+    stats: dict | None = None     # Reifen/Bremsen/Elektronik je Runde (Collector >= 0.9)
 
     def as_dict(self) -> dict:
         return dict(self.__dict__)
@@ -544,6 +550,85 @@ class Lap:
 # ---------------------------------------------------------------------------
 # Rundenerkennung
 # ---------------------------------------------------------------------------
+
+class LapStats:
+    """Sammelt Reifen-, Bremsen- und Elektronikwerte über eine Runde (nur auf der Strecke, > 30 km/h).
+
+    Ergebnis je Rad (VL, VR, HL, HR): Mittelwert für Druck (psi), Kerntemperatur, innen/mitte/außen;
+    Bremstemperatur Mittel und Spitze; Bremsbalance; TC/ABS-Stufe (häufigster Wert) und Anteil der
+    Zeit mit Eingriff; Spritverbrauch der Runde."""
+
+    WHEEL_KEYS = ("tp", "tc", "ti", "tm", "to", "bt")
+
+    def __init__(self):
+        self.n = 0
+        self.sums = {k: [0.0] * 4 for k in self.WHEEL_KEYS}
+        self.cnts = {k: [0] * 4 for k in self.WHEEL_KEYS}
+        self.bt_max = [None] * 4
+        self.bb_sum, self.bb_n = 0.0, 0
+        self.abs_n = self.tc_n = self.lock_n = 0
+        self.levels: dict[str, collections.Counter] = {k: collections.Counter() for k in ("tc_lvl", "tc_cut", "abs_lvl", "map")}
+        self.fuel_first = self.fuel_last = None
+        self.compound = None
+
+    def add(self, te: dict | None, speed_kmh: float | None, in_pit: bool) -> None:
+        if not te or in_pit or not speed_kmh or speed_kmh < 30:
+            return
+        self.n += 1
+        for k in self.WHEEL_KEYS:
+            vals = te.get(k)
+            if not vals:
+                continue
+            for i, v in enumerate(vals[:4]):
+                if v is None or v <= 0:
+                    continue
+                self.sums[k][i] += v
+                self.cnts[k][i] += 1
+                if k == "bt" and (self.bt_max[i] is None or v > self.bt_max[i]):
+                    self.bt_max[i] = v
+        bb = te.get("bb")
+        if bb is not None:
+            self.bb_sum += bb
+            self.bb_n += 1
+        self.abs_n += bool(te.get("abs_on"))
+        self.tc_n += bool(te.get("tc_on"))
+        self.lock_n += any(te.get("lock") or [])
+        for k in self.levels:
+            if te.get(k) is not None:
+                self.levels[k][te[k]] += 1
+        fuel = te.get("fuel")
+        if fuel is not None and fuel > 0:
+            if self.fuel_first is None:
+                self.fuel_first = fuel
+            self.fuel_last = fuel
+        if te.get("compound"):
+            self.compound = te["compound"]
+
+    def result(self) -> dict | None:
+        if self.n < 50:
+            return None
+        out: dict = {"samples": self.n}
+        for k in self.WHEEL_KEYS:
+            if any(self.cnts[k]):
+                out[k] = [round(self.sums[k][i] / self.cnts[k][i], 2 if k == "tp" else 1) if self.cnts[k][i] else None
+                          for i in range(4)]
+        if any(v is not None for v in self.bt_max):
+            out["bt_max"] = [round(v) if v is not None else None for v in self.bt_max]
+        if self.bb_n:
+            out["bb"] = round(self.bb_sum / self.bb_n, 4)
+        out["abs_pct"] = round(100 * self.abs_n / self.n, 1)
+        out["tc_pct"] = round(100 * self.tc_n / self.n, 1)
+        if self.lock_n:
+            out["lock_pct"] = round(100 * self.lock_n / self.n, 1)
+        for k, c in self.levels.items():
+            if c:
+                out[k] = c.most_common(1)[0][0]
+        if self.fuel_first is not None and self.fuel_last is not None and 0 < self.fuel_first - self.fuel_last < 50:
+            out["fuel_used"] = round(self.fuel_first - self.fuel_last, 2)
+        if self.compound:
+            out["compound"] = self.compound
+        return out
+
 
 class LapDetector:
     """Erkennt fertige Runden aus aufeinanderfolgenden Momentaufnahmen.
@@ -576,6 +661,7 @@ class LapDetector:
         self.lap_max_current = 0
         self.lap_start_incidents = snap.incidents if snap else None
         self.samples: list[tuple] = []
+        self.stats = LapStats()
 
     def _key(self, s: Snapshot):
         return (s.game, s.track, s.layout, s.car, s.session_type, s.session_id)
@@ -588,7 +674,7 @@ class LapDetector:
                 note = f"+{inc}x Incidents"
                 # iRacing wertet Runden mit Incident (Off-Track, Kontakt) nicht für die Bestzeit
                 self.lap_invalid = self.lap_valid_known = True
-        return Lap(note=note, trace=build_trace(self.samples),
+        return Lap(note=note, trace=build_trace(self.samples), stats=self.stats.result(),
             game=ref.game, track=ref.track, layout=ref.layout, car=ref.car,
             session_uid=self.session_uid, session_type=ref.session_type,
             lap_number=lap_number, lap_time_ms=int(time_ms),
@@ -672,7 +758,9 @@ class LapDetector:
                 te = s.tele or {}
                 self.samples.append((s.npos, s.current_ms, s.speed_kmh, s.throttle, s.brake,
                                      s.pos_x, s.pos_z, s.gear, te.get("steer"),
-                                     (te.get("g") or [None])[0], te.get("yaw")))
+                                     (te.get("g") or [None])[0], te.get("yaw"),
+                                     te.get("abs_on"), te.get("tc_on")))
+                self.stats.add(te, s.speed_kmh, s.in_pit_lane)
             # Boxenausfahrt liegt meist kurz hinter der Linie -> Boxengasse in der
             # ersten Rundenhälfte = Outlap
             if s.in_pit_lane and s.npos < 0.5:

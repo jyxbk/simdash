@@ -332,3 +332,29 @@ def test_pick_source_order_after_pause():
     evo, acc = FakeSource("evo"), FakeSource("acc")
     assert sc.pick_source([evo, acc], {id(evo): 100.0}, now=150.0) is evo
     assert sc.pick_source([FakeSource("x", False)], {}, now=0.0) is None
+
+
+def test_lap_stats_averages_and_ignores_pit():
+    s = sc.LapStats()
+    te = {"tp": [27.0, 28.0, 26.0, 26.0], "ti": [80, 80, 80, 80], "bt": [500, 500, 400, 400], "bb": 0.56,
+          "abs_on": True, "tc_on": False, "abs_lvl": 4, "fuel": 50.0}
+    for i in range(60):
+        s.add(dict(te, bt=[500 + i, 500, 400, 400], fuel=50.0 - i * 0.05, abs_on=i % 2 == 0), 150, False)
+    s.add(dict(te, tp=[99, 99, 99, 99]), 150, True)   # Box: zählt nicht
+    s.add(dict(te, tp=[99, 99, 99, 99]), 10, False)   # zu langsam: zählt nicht
+    r = s.result()
+    assert r["samples"] == 60 and r["tp"] == [27.0, 28.0, 26.0, 26.0]
+    assert r["bt_max"][0] == 559 and r["abs_pct"] == 50.0 and r["abs_lvl"] == 4 and r["fuel_used"] == 2.95
+
+
+def test_lap_stats_needs_enough_samples():
+    s = sc.LapStats()
+    for _ in range(10):
+        s.add({"tp": [27, 27, 27, 27]}, 150, False)
+    assert s.result() is None
+
+
+def test_build_trace_abs_flags():
+    smp = [(i / 100, i * 800, 150.0, 1.0, 0.0, None, None, 3, 0.0, 0.0, 0.0, i in (40, 41), False) for i in range(101)]
+    tr = sc.build_trace(smp)
+    assert tr["abs"] is not None and max(tr["abs"]) == 1 and max(tr["tcx"]) == 0

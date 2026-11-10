@@ -4,6 +4,17 @@ Server/UI and collector have separate version numbers. The collector version is
 in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 `server/static/index.html`.
 
+## Collector 0.9.0 — 2026-11-11
+- **Per-lap car data** (`stats`): average tyre pressure, core temperature and
+  inner/middle/outer temperature per wheel, brake temperature (average and
+  peak), brake bias, TC/ABS/map level (most common value), share of the lap
+  with ABS/TC active (and wheel lock in AC EVO), fuel used, tyre compound.
+  Only counted on track above 30 km/h. Needs at least 50 samples.
+- Trace: new `abs` and `tcx` channels (0/1 per point) show where ABS and TC
+  intervene, so the coach can tie them to corners.
+- Server: new table `lap_stats`, `GET /api/lapstats`, `Trace.abs/tcx`;
+  older servers ignore the new fields.
+
 ## Collector 0.8.1 — 2026-11-11
 - **Fix: ACC was never detected while SimHub was running.** SimHub keeps the
   AC EVO shared memory names open even when AC EVO is closed. The collector
