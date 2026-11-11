@@ -99,6 +99,7 @@ function onLive(msg) {
   }
   if (d.state === "live" && !d.paused && d.current_ms > 0) addTrail(d);
   fuelOnLive(d);
+  if (typeof ghostOnLive === "function") ghostOnLive(d, prev);
   render();
   if (typeof renderCockpit === "function") renderCockpit();
 }

@@ -18,6 +18,8 @@ import collections
 import ctypes
 import json
 import logging
+import math
+import struct
 import os
 import subprocess
 import sys
@@ -34,7 +36,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "0.9.1"
+VERSION = "0.10.0"
 POLL_HZ = 50
 
 log = logging.getLogger("simdash")
@@ -1517,6 +1519,146 @@ class Ams2Source(GameSource):
         return {"sm_version": d.mVersion if d else None, "build": d.mBuildVersionNumber if d else None}
 
 
+# ---------------------------------------------------------------------------
+# Le Mans Ultimate: eingebauter Speicher „LMU_Data“ (Support/SharedMemoryInterface im Spielordner).
+# Byte-Positionen mit clang für das Windows-ABI aus den Original-Headern berechnet (Stand 11/2026);
+# Plugin-Strukturen mit #pragma pack(4). Größe gesamt 324824 Byte.
+# ---------------------------------------------------------------------------
+LMU = dict(
+    size=324824, scoring_info=1632, si_size=548, veh=2192, veh_size=584,
+    tel_hdr=128464, telem=128468, ti_size=1888, wheel=848, wheel_size=260,
+    si_track=0, si_session=64, si_lapdist=88, si_numveh=104, si_phase=108, si_realtime=115,
+    vs_id=0, vs_driver=4, vs_vehicle=36, vs_laps=100, vs_lapdist=104, vs_best=144, vs_last=168,
+    vs_isplayer=196, vs_inpits=198, vs_class=200, vs_into=464,
+    ti_id=0, ti_elapsed=12, ti_lapstart=24, ti_pos=160, ti_vel=184, ti_acc=208, ti_rot=304, ti_gear=352,
+    ti_rpm=356, ti_water=364, ti_oil=372, ti_thr=388, ti_brk=396, ti_steer=404, ti_fuel=524, ti_maxrpm=532,
+    ti_fuelcap=608, ti_compound=620, ti_rearbb=664, ti_invalid=745, ti_abs_on=746, ti_tc_on=747,
+    ti_tc=750, ti_abs=756, ti_map=758,
+    w_brake=24, w_press=120, w_temp=128, w_carcass=204,
+)
+LMU_SESSIONS = {0: "testing", 1: "practice", 2: "practice", 3: "practice", 4: "practice", 5: "qualify", 6: "qualify",
+                7: "qualify", 8: "qualify", 9: "warmup", 10: "race", 11: "race", 12: "race", 13: "race"}
+
+
+class LmuSource(GameSource):
+    """Le Mans Ultimate. Gültigkeit vom Spiel (mLapInvalidated), Runden/Zeiten aus der Wertung,
+    Physik/Reifen aus der Telemetrie des eigenen Autos."""
+    game = "lmu"
+    settle_s = 2.0
+
+    def __init__(self, mapping=None):
+        self.m = mapping or NamedMapping("LMU_Data")
+        self.vs_idx = 0
+        self.sess_n, self.prev_laps, self.prev_sess = 0, None, None
+
+    def available(self) -> bool:
+        if not self.m.open():
+            return False
+        try:
+            if self.m.size < LMU["size"]:
+                raise ValueError("Mapping zu klein")
+            nveh = struct.unpack_from("<i", self.m.read_bytes(LMU["scoring_info"] + LMU["si_numveh"], 4))[0]
+            if not 0 <= nveh <= 104:
+                raise ValueError("unplausibel")
+        except (ValueError, OSError, struct.error):
+            self.close()
+            return False
+        return True
+
+    def close(self) -> None:
+        self.m.close()
+
+    def _player(self, nveh: int) -> bytes | None:
+        """Wertungsdaten des eigenen Autos (mIsPlayer); letzte Fundstelle zuerst prüfen."""
+        L = LMU
+        order = [self.vs_idx] + [k for k in range(min(nveh, 104)) if k != self.vs_idx]
+        for k in order:
+            if k >= nveh:
+                continue
+            b = self.m.read_bytes(L["veh"] + k * L["veh_size"], L["veh_size"])
+            if b[L["vs_isplayer"]]:
+                self.vs_idx = k
+                return b
+        return None
+
+    def snapshot(self) -> Snapshot:
+        L = LMU
+        si = self.m.read_bytes(L["scoring_info"], L["si_size"])
+        hdr = self.m.read_bytes(L["tel_hdr"], 3)
+        nveh = struct.unpack_from("<i", si, L["si_numveh"])[0]
+        idx = hdr[1] if hdr[1] < 104 else 0
+        ti = self.m.read_bytes(L["telem"] + idx * L["ti_size"], L["ti_size"])
+        vs = self._player(nveh)
+        d = lambda b, off, n=1: struct.unpack_from(f"<{n}d", b, off) if n > 1 else struct.unpack_from("<d", b, off)[0]
+        realtime = bool(si[L["si_realtime"]]) and bool(hdr[2]) and vs is not None
+        status = STATUS_LIVE if realtime else STATUS_OFF
+        sess = struct.unpack_from("<i", si, L["si_session"])[0]
+        laps = struct.unpack_from("<h", vs, L["vs_laps"])[0] if vs else 0
+        if (self.prev_laps is not None and laps < self.prev_laps) or (self.prev_sess not in (None, sess)):
+            self.sess_n += 1
+        self.prev_laps, self.prev_sess = laps, sess
+        length = d(si, L["si_lapdist"])
+        npos = d(vs, L["vs_lapdist"]) / length if vs and length > 0 else 0.0
+        elapsed = d(ti, L["ti_elapsed"])
+        into = d(vs, L["vs_into"]) if vs else -1
+        cur = into if into > 0 else elapsed - d(ti, L["ti_lapstart"])
+        last, best = (d(vs, L["vs_last"]), d(vs, L["vs_best"])) if vs else (-1, -1)
+        vel = d(ti, L["ti_vel"], 3)
+        pos = d(ti, L["ti_pos"], 3)
+        rpm, maxrpm = d(ti, L["ti_rpm"]), d(ti, L["ti_maxrpm"])
+        return Snapshot(
+            game=self.game, status=status, packet_id=int(elapsed * 1000),
+            lap_count=int(laps), current_ms=int(cur * 1000) if cur > 0 else 0,
+            last_ms=int(last * 1000) if last > 0 else -1, best_ms=int(best * 1000) if best > 0 else -1,
+            valid_now=not ti[L["ti_invalid"]],
+            npos=min(max(npos, 0.0), 1.0), in_pit_lane=bool(vs[L["vs_inpits"]]) if vs else False,
+            track=bstr(si[L["si_track"]:L["si_track"] + 64]) or "unbekannt", layout="",
+            car=(bstr(vs[L["vs_vehicle"]:L["vs_vehicle"] + 64]) if vs else "") or "unbekannt",
+            session_type=LMU_SESSIONS.get(sess, str(sess)),
+            driver=bstr(vs[L["vs_driver"]:L["vs_driver"] + 32]) if vs else "",
+            session_id=f"{sess}:{self.sess_n}",
+            speed_kmh=math.sqrt(sum(v * v for v in vel)) * 3.6,
+            throttle=clamp01(d(ti, L["ti_thr"])), brake=clamp01(d(ti, L["ti_brk"])),
+            pos_x=float(pos[0]), pos_z=float(pos[2]),
+            gear=struct.unpack_from("<i", ti, L["ti_gear"])[0], rpm=int(rpm),
+            rpm_pct=clamp01(rpm / maxrpm) if maxrpm > 0 else None,
+            tele=self.tele(ti, d),
+        )
+
+    def tele(self, ti: bytes, d) -> dict:
+        L, g0 = LMU, 9.80665
+        acc, rot = d(ti, L["ti_acc"], 3), d(ti, L["ti_rot"], 3)
+        wh = [ti[L["wheel"] + k * L["wheel_size"]:L["wheel"] + (k + 1) * L["wheel_size"]] for k in range(4)]
+        temps = [d(w, L["w_temp"], 3) for w in wh]                     # Kelvin, links/mitte/rechts
+        K = lambda v: _r(v - 273.15, 0) if v > 100 else None
+        nz = lambda arr: arr if any(v for v in arr if v) else None
+        fuel, cap = d(ti, L["ti_fuel"]), d(ti, L["ti_fuelcap"])
+        rear = d(ti, L["ti_rearbb"])
+        return {
+            "g": [_r(acc[0] / g0, 2), _r(acc[2] / g0, 2)],
+            "steer": _r(d(ti, L["ti_steer"]), 3),
+            "yaw": _r(rot[1], 3),
+            "fuel": _r(fuel) if fuel > 0 else None,
+            "water": _r(d(ti, L["ti_water"]), 0), "oil": _r(d(ti, L["ti_oil"]), 0),
+            "tp": nz([_r(d(w, L["w_press"]) * 0.145038, 1) for w in wh]),          # kPa -> psi
+            "tc": nz([K(d(w, L["w_carcass"])) for w in wh]),
+            # links = außen bei linken Rädern
+            "ti": nz([K(t[2] if k in (0, 2) else t[0]) for k, t in enumerate(temps)]),
+            "tm": nz([K(t[1]) for t in temps]),
+            "to": nz([K(t[0] if k in (0, 2) else t[2]) for k, t in enumerate(temps)]),
+            "bt": nz([_r(d(w, L["w_brake"]), 0) for w in wh]),
+            "bb": _r(1 - rear, 3) if 0.1 < rear < 0.8 else None,
+            "abs_on": bool(ti[L["ti_abs_on"]]), "tc_on": bool(ti[L["ti_tc_on"]]),
+            "tc_lvl": ti[L["ti_tc"]], "abs_lvl": ti[L["ti_abs"]], "map": ti[L["ti_map"]],
+            "max_rpm": int(d(ti, L["ti_maxrpm"])) or None,
+            "compound": bstr(ti[L["ti_compound"]:L["ti_compound"] + 18]) or None,
+            "fuel_laps": None,
+        }
+
+    def info(self) -> dict:
+        return {"mapping": "LMU_Data"}
+
+
 # Ein Spiel, das keine neuen Daten mehr liefert, wird so lange übersprungen. Grund: Tools wie
 # SimHub halten die Mapping-Namen eines Spiels offen, auch wenn es nicht läuft. Ohne Pause
 # würde die zuerst geprüfte Quelle (AC EVO) jedes Mal wieder gewählt und ACC nie erreicht.
@@ -1804,7 +1946,7 @@ def main() -> None:
         live = LiveSender(cfg["server"]["url"], cfg["server"]["token"], cfg.getfloat("live", "hz", fallback=10))
         live.start()
 
-    sources = [AcEvoSource(), IRacingSource(), Ams2Source(), AcFamilySource(processes)]
+    sources = [AcEvoSource(), IRacingSource(), Ams2Source(), LmuSource(), AcFamilySource(processes)]
     detector = LapDetector()
     active: GameSource | None = None
     stale_until: dict[int, float] = {}   # id(Quelle) -> bis wann überspringen (keine neuen Daten)

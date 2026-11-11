@@ -195,7 +195,7 @@ function hideTip() { $("#tooltip").hidden = true; }
 /* --- Collector-Seite ------------------------------------------------------- */
 function renderCollectorPage() {
   const games = [["AC EVO", "voll (Reifen, Bremsen, Linie, Coach)"], ["Assetto Corsa Competizione", "voll"], ["iRacing", "Runden, Incidents, Pedale (keine Streckenkarte)"],
-    ["Automobilista 2", "voll (in AMS2: Optionen → System → Shared Memory = „Project CARS 2“)"], ["Assetto Corsa", "Runden ohne Gültigkeit"], ["AC Rally", "experimentell"]];
+    ["Le Mans Ultimate", "voll (Reifen, Bremsen, Linie, Coach) – ab Collector 0.10"], ["Automobilista 2", "voll (in AMS2: Optionen → System → Shared Memory = „Project CARS 2“)"], ["Assetto Corsa", "Runden ohne Gültigkeit"], ["AC Rally", "experimentell"]];
   $("#collector-body").replaceChildren(
     h("section", { class: "detail-card" }, h("div", { class: "detail-title" }, "Herunterladen"),
       h("p", {}, "Windows-Paket mit Start-, Test- und Autostart-Skript. Braucht Python 3."),

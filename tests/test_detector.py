@@ -358,3 +358,71 @@ def test_build_trace_abs_flags():
     smp = [(i / 100, i * 800, 150.0, 1.0, 0.0, None, None, 3, 0.0, 0.0, 0.0, i in (40, 41), False) for i in range(101)]
     tr = sc.build_trace(smp)
     assert tr["abs"] is not None and max(tr["abs"]) == 1 and max(tr["tcx"]) == 0
+
+
+class FakeMap:
+    """Nachgebauter LMU-Speicher; Positionen direkt aus der clang-Ausgabe (nicht aus sc.LMU)."""
+    def __init__(self):
+        self.buf = bytearray(324824)
+        self.size = len(self.buf)
+
+    def open(self):
+        return True
+
+    def close(self):
+        pass
+
+    def read_bytes(self, off, n):
+        return bytes(self.buf[off:off + n])
+
+    def put(self, off, fmt, *v):
+        import struct
+        struct.pack_into(fmt, self.buf, off, *v)
+
+
+def test_lmu_snapshot_reads_expected_offsets():
+    m = FakeMap()
+    SI, VEH, TEL = 1632, 2192, 128468
+    m.buf[SI:SI + 9] = b"Le Mans\0\0"
+    m.put(SI + 64, "<i", 1)            # Session: Training
+    m.put(SI + 88, "<d", 13626.0)      # Streckenlänge
+    m.put(SI + 104, "<i", 3)           # Fahrzeuge
+    m.buf[SI + 115] = 1                # Realtime
+    m.put(128464, "<BB?", 3, 2, True)  # aktiv, Spieler-Index 2, hat Auto
+    v = VEH + 1 * 584                  # Spieler ist Wertungseintrag 1
+    m.buf[v + 4:v + 9] = b"Jere\0"
+    m.buf[v + 36:v + 48] = b"Toyota GR010"
+    m.put(v + 100, "<h", 5)
+    m.put(v + 104, "<d", 6813.0)
+    m.put(v + 144, "<d", 211.5)
+    m.put(v + 168, "<d", 212.25)
+    m.buf[v + 196] = 1
+    m.put(v + 464, "<d", 100.0)
+    t = TEL + 2 * 1888
+    m.put(t + 12, "<d", 5000.0)
+    m.put(t + 160, "<3d", 10.0, 2.0, -30.0)
+    m.put(t + 184, "<3d", 30.0, 0.0, 40.0)        # 50 m/s
+    m.put(t + 304, "<3d", 0.0, 0.42, 0.0)
+    m.put(t + 352, "<i", 4)
+    m.put(t + 356, "<d", 8000.0)
+    m.put(t + 388, "<d", 0.8)
+    m.put(t + 532, "<d", 10000.0)
+    m.put(t + 664, "<d", 0.45)
+    m.buf[t + 745] = 1
+    m.buf[t + 746] = 1
+    m.buf[t + 750] = 3
+    w = t + 848 + 1 * 260                         # vorne rechts
+    m.put(w + 120, "<d", 186.0)                   # kPa
+    m.put(w + 128, "<3d", 353.15, 358.15, 363.15) # links/mitte/rechts K
+    m.put(w + 24, "<d", 450.0)
+    src = sc.LmuSource(mapping=m)
+    assert src.available()
+    s = src.snapshot()
+    assert s.status == sc.STATUS_LIVE and s.track == "Le Mans" and s.car == "Toyota GR010" and s.driver == "Jere"
+    assert s.lap_count == 5 and s.last_ms == 212250 and s.best_ms == 211500 and s.current_ms == 100000
+    assert abs(s.npos - 0.5) < 1e-9 and s.valid_now is False and s.session_type == "practice"
+    assert round(s.speed_kmh) == 180 and s.gear == 4 and s.rpm_pct == 0.8 and s.pos_z == -30.0
+    te = s.tele
+    assert te["yaw"] == 0.42 and te["bb"] == 0.55 and te["abs_on"] is True and te["tc_lvl"] == 3
+    assert te["tp"][1] == 27.0 and te["bt"][1] == 450
+    assert te["ti"][1] == 80 and te["to"][1] == 90 and te["tm"][1] == 85   # rechtes Rad: links = innen

@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="manifest" href="/static/manifest.webmanifest">
   <meta name="apple-mobile-web-app-title" content="SimDash">
-  <link rel="stylesheet" href="/static/style.css?v=0.16.0">
+  <link rel="stylesheet" href="/static/style.css?v=0.17.0">
 </head>
 <body class="viz-root" data-palette="#3987e5">
   <div class="app" id="app">
@@ -180,6 +180,18 @@
         <div class="live-sub" id="lv-sub"></div>
       </div>
       <button class="cp-open" id="cp-open" type="button" title="Vollbild fürs Handy am Rig">⛶ Cockpit</button>
+      <details class="lv-voice" id="lv-voice">
+        <summary class="cp-open">🔊 Ansagen</summary>
+        <div class="voice-opts">
+          <label><input type="checkbox" data-k="on"> Ansagen an (auf diesem Gerät)</label>
+          <label><input type="checkbox" data-k="coach"> Coach-Hinweis vor Kurven mit Potenzial</label>
+          <label><input type="checkbox" data-k="laps"> Rundenzeit und Abstand zur Bestzeit</label>
+          <label><input type="checkbox" data-k="invalid"> „Runde ungültig“</label>
+          <label><input type="checkbox" data-k="fuel"> Sprit-Warnung (3 und 1,5 Runden)</label>
+          <button class="ghost sm" type="button" id="lv-voice-test">Test-Ansage</button>
+          <p class="muted-sm">Der Coach-Hinweis erscheint auch ohne Ton im Cockpit, etwa 220 m vor der Kurve. Grundlage ist deine beste Fahrt durch genau diese Kurve.</p>
+        </div>
+      </details>
       <label class="lv-driver">Es fährt
         <select id="lv-driver" aria-label="Wer fährt gerade?"></select>
       </label>
@@ -264,6 +276,7 @@
       <span class="cp-dot" id="cp-conn"></span><span class="cp-conn-txt" id="cp-conn-txt"></span>
       <span class="cp-what" id="cp-what"></span>
       <span class="cp-flags" id="cp-flags"></span>
+      <button class="cp-btn" id="cp-voice" type="button" aria-pressed="false" title="Sprachansagen ein/aus">🔇 Ansagen aus</button>
       <button class="cp-btn" id="cp-detail" type="button" title="Ausführliche Live-Ansicht mit Karte, Reifen, Verlauf">Details</button>
       <button class="cp-btn" id="cp-exit" type="button" title="Zur Übersicht">Übersicht</button>
     </div>
@@ -285,6 +298,7 @@
       <div class="cp-bar"><div id="cp-brk" class="brk"></div></div>
     </div>
     <div class="cp-sectors" id="cp-sectors"></div>
+    <div class="cp-ghost" id="cp-ghost" aria-live="polite"></div>
     <div class="cp-coach" id="cp-coach"></div>
     <button class="cp-start" id="cp-start" type="button">
       <b>Antippen für Vollbild</b>
@@ -324,16 +338,17 @@
     </div>
   </template>
 
-  <script src="/static/shell.js?v=0.16.0"></script>
-  <script src="/static/app.js?v=0.16.0"></script>
-  <script src="/static/coach.js?v=0.16.0"></script>
-  <script src="/static/progress.js?v=0.16.0"></script>
-  <script src="/static/insights.js?v=0.16.0"></script>
-  <script src="/static/handling.js?v=0.16.0"></script>
-  <script src="/static/fuel.js?v=0.16.0"></script>
-  <script src="/static/live.js?v=0.16.0"></script>
-  <script src="/static/cockpit.js?v=0.16.0"></script>
-  <script src="/static/safety.js?v=0.16.0"></script>
-  <script src="/static/setup.js?v=0.16.0"></script>
+  <script src="/static/shell.js?v=0.17.0"></script>
+  <script src="/static/app.js?v=0.17.0"></script>
+  <script src="/static/coach.js?v=0.17.0"></script>
+  <script src="/static/progress.js?v=0.17.0"></script>
+  <script src="/static/insights.js?v=0.17.0"></script>
+  <script src="/static/handling.js?v=0.17.0"></script>
+  <script src="/static/fuel.js?v=0.17.0"></script>
+  <script src="/static/live.js?v=0.17.0"></script>
+  <script src="/static/cockpit.js?v=0.17.0"></script>
+  <script src="/static/ghost.js?v=0.17.0"></script>
+  <script src="/static/safety.js?v=0.17.0"></script>
+  <script src="/static/setup.js?v=0.17.0"></script>
 </body>
 </html>

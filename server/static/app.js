@@ -6,8 +6,8 @@
 const $ = (sel) => document.querySelector(sel);
 const SVGNS = "http://www.w3.org/2000/svg";
 
-const GAME_NAMES = { acevo: "AC EVO", acc: "ACC", ac: "Assetto Corsa", acrally: "AC Rally", iracing: "iRacing", ams2: "AMS2" };
-const GAME_ORDER = ["acevo", "iracing", "acc", "acrally", "ac"];
+const GAME_NAMES = { acevo: "AC EVO", lmu: "LMU", acc: "ACC", ac: "Assetto Corsa", acrally: "AC Rally", iracing: "iRacing", ams2: "AMS2" };
+const GAME_ORDER = ["acevo", "lmu", "iracing", "acc", "acrally", "ac"];
 const SESSION_NAMES = {
   practice: "Training", qualify: "Qualifying", race: "Rennen", hotlap: "Hotlap",
   time_attack: "Time Attack", hot_stint: "Hot Stint", cruise: "Cruise", superpole: "Superpole",

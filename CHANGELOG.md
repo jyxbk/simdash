@@ -4,6 +4,21 @@ Server/UI and collector have separate version numbers. The collector version is
 in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 `server/static/index.html`.
 
+## UI 0.17.0 · Collector 0.10.0 — 2026-11-11
+- **Ghost coach** in the cockpit: about 220 m before every corner where your
+  best run through that corner was faster (≥ 30 ms), a short hint from the
+  coach appears ("+3 km/h im Scheitel", "10 m später bremsen", …).
+- **Voice announcements** (browser speech, per device, off by default):
+  coach hint before the corner, lap time with gap to the best lap / new best,
+  "Runde ungültig", fuel warning at 3 and 1.5 laps. Toggle in the cockpit,
+  options under "🔊 Ansagen" in the live view.
+- **Le Mans Ultimate** (`lmu`) via the built-in shared memory `LMU_Data`
+  (headers in `Support/SharedMemoryInterface`; offsets computed with clang for
+  the Windows ABI). Lap times, validity (`mLapInvalidated`), pit lane,
+  position, speed, pedals, steering, yaw rate, lateral g, gear/rpm, fuel,
+  tyre pressure, carcass and inner/middle/outer temperatures, brake
+  temperatures, brake bias, TC/ABS level and activity.
+
 ## UI 0.16.0 — 2026-11-11
 - **New layout**: collapsible sidebar (icons only when collapsed, drawer on
   phones) with groups Fahren (Übersicht, Live, Cockpit), Auswerten (Sessions,

@@ -1233,3 +1233,21 @@ ol.steps li::before { content: counter(s); width: 22px; height: 22px; border-rad
 .card-id, .session-id, .hb-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .hb-id .tthumb { border-radius: 8px; }
 body[data-page="bests"] #overview-view .section-head, body[data-page="sessions"] #overview-view .section-head { display: none; }
+
+/* --- Ghost-Coach & Ansagen ---------------------------------------------------- */
+.cp-ghost { grid-area: coach; display: none; align-items: center; gap: .8rem; padding: .5rem .9rem; border-radius: 12px;
+  background: var(--accent); color: #fff; font-size: clamp(1rem, 4.2vmin, 1.9rem); font-weight: 700; min-width: 0; }
+.cp-ghost.on { display: flex; animation: ghost-in .18s ease-out; }
+.cp-ghost.on + .cp-coach { display: none; }
+.cp-ghost .g-name { opacity: .85; white-space: nowrap; }
+.cp-ghost .g-txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cp-ghost .g-gain { font-variant-numeric: tabular-nums; opacity: .85; font-size: .8em; white-space: nowrap; }
+@keyframes ghost-in { from { transform: translateY(6px); opacity: 0; } to { transform: none; opacity: 1; } }
+#cp-voice[aria-pressed="true"] { border-color: var(--accent); color: var(--text-primary); }
+.lv-voice { position: relative; }
+.lv-voice > summary { list-style: none; cursor: pointer; }
+.lv-voice > summary::-webkit-details-marker { display: none; }
+.lv-voice .voice-opts { position: absolute; right: 0; top: calc(100% + 6px); z-index: 15; width: min(340px, 86vw); display: grid; gap: 8px;
+  background: var(--surface-1); border: 1px solid var(--border-strong); border-radius: 12px; padding: 14px; box-shadow: var(--shadow); font-size: 14px; }
+.lv-voice .voice-opts label { display: flex; gap: 8px; align-items: flex-start; }
+.lv-voice .voice-opts button { justify-self: start; }
