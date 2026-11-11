@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0d0d0d">
+  <meta name="theme-color" content="#111110">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>SimDash</title>
@@ -11,19 +11,30 @@
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="manifest" href="/static/manifest.webmanifest">
   <meta name="apple-mobile-web-app-title" content="SimDash">
-  <link rel="stylesheet" href="/static/style.css?v=0.15.0">
+  <link rel="stylesheet" href="/static/style.css?v=0.16.0">
 </head>
 <body class="viz-root" data-palette="#3987e5">
+  <div class="app" id="app">
+  <aside class="sidebar" id="sidebar" aria-label="Hauptmenü">
+    <div class="sb-brand">
+      <a class="brand" href="#" aria-label="SimDash Übersicht"><svg class="logo" width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M5 27V17C5 10 10 5 17 5h10" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/><circle cx="13.6" cy="13.6" r="2.8" fill="var(--accent)"/></svg><span class="name">Sim<b>Dash</b></span></a>
+      <button class="collapse-btn" id="nav-collapse" type="button" aria-label="Menü ein- oder ausklappen" title="Menü ein-/ausklappen">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+    </div>
+    <nav id="nav" aria-label="Seiten"></nav>
+    <div class="sb-foot">
+      <a class="driver-card" id="driver-card" href="#safety" title="Safety Rating ansehen"></a>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+
+  <div class="main-col">
   <header class="topbar">
-    <a class="brand" href="/" aria-label="SimDash Startseite">
-      <img src="/static/icon.svg" alt="" width="28" height="28">
-      <span>Sim<b>Dash</b></span>
-    </a>
-    <nav class="tabs" aria-label="Ansicht">
-      <a href="#" data-tab="overview" aria-current="page">Übersicht</a>
-      <a href="#analyse" data-tab="analyse">Analyse</a>
-      <a href="#live" data-tab="live">Live<span class="tab-dot" id="tab-live-dot" hidden></span></a>
-    </nav>
+    <button class="menu-btn" id="menu-btn" type="button" aria-label="Menü öffnen">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <div class="crumbs" id="crumbs"></div>
     <span id="status" class="status" aria-live="polite"></span>
   </header>
 
@@ -38,13 +49,15 @@
 
   <div id="overview-view">
   <main>
-    <section id="hero" class="hero" aria-label="Neueste Bestzeit"></section>
+    <div class="page-head" data-pages="overview sessions bests"><h1 id="page-title">Übersicht</h1><p id="page-sub"></p></div>
+    <section id="sr-mini" class="sr-mini" data-pages="overview" hidden></section>
+    <section id="hero" class="hero" aria-label="Neueste Bestzeit" data-pages="overview"></section>
 
-    <section class="tiles" id="tiles" aria-label="Kennzahlen"></section>
+    <section class="tiles" id="tiles" aria-label="Kennzahlen" data-pages="overview"></section>
 
-    <section id="report" class="detail-card report" aria-label="Session-Bericht" hidden></section>
+    <section id="report" class="detail-card report" aria-label="Session-Bericht" data-pages="overview" hidden></section>
 
-    <section aria-labelledby="h-bests">
+    <section aria-labelledby="h-bests" data-pages="overview bests">
       <div class="section-head">
         <h2 id="h-bests">Bestzeiten</h2>
         <span class="hint">Antippen öffnet Analyse &amp; Coach</span>
@@ -52,7 +65,7 @@
       <div id="bests" class="cards"></div>
     </section>
 
-    <section aria-labelledby="h-sessions">
+    <section aria-labelledby="h-sessions" data-pages="overview sessions">
       <div class="section-head">
         <h2 id="h-sessions">Letzte Sessions</h2>
       </div>
@@ -62,22 +75,22 @@
   </div>
 
   <main id="analyse-view" class="analyse" hidden aria-label="Analyse">
+    <div class="page-head"><h1 id="an-title">Coach &amp; Setup</h1><p id="an-sub"></p></div>
     <div class="an-head">
+      <div id="combo-badge"></div>
       <label class="an-combo">Strecke &amp; Auto
         <select id="a-combo" aria-label="Strecke und Auto für die Analyse"></select>
       </label>
-      <nav class="chips an-jump" aria-label="Springen zu">
-        <a class="chip" href="#coach" data-jump="coach">Coach</a>
-        <a class="chip" href="#handling" data-jump="handling">Setup</a>
-        <a class="chip" href="#progress" data-jump="progress">Fortschritt</a>
-        <a class="chip" href="#notes" data-jump="notes">Notizen</a>
-        <a class="chip" href="#analysis" data-jump="analysis">Rundenvergleich</a>
-        <a class="chip" href="#laptimes" data-jump="laptimes">Rundenzeiten</a>
+      <nav class="subnav" id="coach-subnav" role="tablist" aria-label="Coach &amp; Setup" data-pages="coach">
+        <a role="tab" href="#coach" data-sub="zeit">Wo Zeit liegt</a>
+        <a role="tab" href="#coach/setup" data-sub="setup">Setup-Diagnose</a>
+        <a role="tab" href="#coach/logbuch" data-sub="logbuch">Setup-Logbuch</a>
+        <a role="tab" href="#coach/reifen" data-sub="reifen">Reifen &amp; Bremsen</a>
       </nav>
     </div>
     <div id="analyse-empty" class="detail-card" hidden></div>
 
-    <section class="detail-card coach" id="coach" aria-labelledby="h-coach">
+    <section class="detail-card coach" id="coach" aria-labelledby="h-coach" data-pages="coach:zeit">
       <div class="analysis-head">
         <div>
           <div class="detail-title" id="h-coach">Wo steckt noch Zeit drin?</div>
@@ -87,19 +100,19 @@
       <div id="coach-body"></div>
     </section>
 
-    <section class="detail-card" id="handling" aria-labelledby="h-handling">
+    <section class="detail-card" id="handling" aria-labelledby="h-handling" data-pages="coach:setup">
       <div class="detail-title" id="h-handling">Fahrverhalten &amp; Setup</div>
       <div class="muted-sm">Wo das Auto schiebt oder das Heck kommt, und was du am Setup probieren kannst</div>
       <div id="handling-body"></div>
     </section>
 
-    <div class="an-row">
-      <section class="detail-card" id="progress" aria-labelledby="h-progress">
+    <div class="an-stack">
+      <section class="detail-card" id="progress" aria-labelledby="h-progress" data-pages="progress">
         <div class="detail-title" id="h-progress">Fortschritt</div>
         <div class="muted-sm">Bestzeit und Median je Session</div>
         <div id="progress-body"></div>
       </section>
-      <section class="detail-card notes" id="notes" aria-labelledby="h-notes">
+      <section class="detail-card notes" id="notes" aria-labelledby="h-notes" data-pages="coach:logbuch">
         <div class="detail-title" id="h-notes">Setup &amp; Notizen</div>
         <div class="muted-sm">Für diese Strecke mit diesem Auto</div>
         <form id="notes-form" class="notes-form">
@@ -110,7 +123,19 @@
       </section>
     </div>
 
-    <section class="detail-card analysis" id="analysis" aria-labelledby="h-analysis">
+    <section class="detail-card" id="setup-log" aria-labelledby="h-setup-log" data-pages="coach:logbuch">
+      <div class="detail-title" id="h-setup-log">Setup-Änderungen · vorher / nachher</div>
+      <div class="muted-sm">Trag eine Änderung ein. Alle Runden danach zählen als „nachher“, SimDash vergleicht automatisch.</div>
+      <div id="setup-log-body"></div>
+    </section>
+
+    <section class="detail-card" id="tyres" aria-labelledby="h-tyres" data-pages="coach:reifen">
+      <div class="detail-title" id="h-tyres">Reifen &amp; Bremsen</div>
+      <div class="muted-sm" id="tyres-sub">Mittelwerte je Runde aus dem Collector (ab Version 0.9)</div>
+      <div id="tyres-body"></div>
+    </section>
+
+    <section class="detail-card analysis" id="analysis" aria-labelledby="h-analysis" data-pages="compare">
       <div class="analysis-head">
         <div>
           <div class="detail-title" id="h-analysis">Rundenvergleich</div>
@@ -125,7 +150,7 @@
       <div id="analysis-body"></div>
     </section>
 
-    <section class="detail-card" id="laptimes" aria-labelledby="h-laptimes">
+    <section class="detail-card" id="laptimes" aria-labelledby="h-laptimes" data-pages="compare progress">
       <div class="detail-title" id="h-laptimes">Rundenzeiten</div>
       <div class="muted-sm" id="detail-title"></div>
       <div class="legend" id="detail-legend"></div>
@@ -135,6 +160,16 @@
         <div id="detail-table"></div>
       </details>
     </section>
+  </main>
+
+  <main id="safety-view" class="page" hidden aria-label="Safety Rating">
+    <div class="page-head"><h1>Safety Rating</h1><p id="sr-sub">Wie sauber wird gefahren? Nach dem Vorbild von iRacing: Zwischenfälle pro Kurve, Lizenzklassen R bis A.</p></div>
+    <div id="safety-body"></div>
+  </main>
+
+  <main id="collector-view" class="page" hidden aria-label="Collector und Spiele">
+    <div class="page-head"><h1>Collector &amp; Spiele</h1><p>Das Programm auf dem Gaming-PC, das die Runden an SimDash schickt.</p></div>
+    <div id="collector-body"></div>
   </main>
 
   <main id="live-view" class="live" hidden aria-label="Live">
@@ -258,11 +293,8 @@
     </button>
   </section>
 
-  <footer>
-    <a href="/static/simdash-collector.zip">Collector für Windows herunterladen</a>
-    <span>·</span>
-    <span>AC EVO · iRacing · ACC · AMS2 · AC Rally · Assetto Corsa</span>
-  </footer>
+  </div>
+  </div>
 
   <div id="tooltip" class="tooltip" role="status" hidden></div>
 
@@ -292,13 +324,16 @@
     </div>
   </template>
 
-  <script src="/static/app.js?v=0.15.0"></script>
-  <script src="/static/coach.js?v=0.15.0"></script>
-  <script src="/static/progress.js?v=0.15.0"></script>
-  <script src="/static/insights.js?v=0.15.0"></script>
-  <script src="/static/handling.js?v=0.15.0"></script>
-  <script src="/static/fuel.js?v=0.15.0"></script>
-  <script src="/static/live.js?v=0.15.0"></script>
-  <script src="/static/cockpit.js?v=0.15.0"></script>
+  <script src="/static/shell.js?v=0.16.0"></script>
+  <script src="/static/app.js?v=0.16.0"></script>
+  <script src="/static/coach.js?v=0.16.0"></script>
+  <script src="/static/progress.js?v=0.16.0"></script>
+  <script src="/static/insights.js?v=0.16.0"></script>
+  <script src="/static/handling.js?v=0.16.0"></script>
+  <script src="/static/fuel.js?v=0.16.0"></script>
+  <script src="/static/live.js?v=0.16.0"></script>
+  <script src="/static/cockpit.js?v=0.16.0"></script>
+  <script src="/static/safety.js?v=0.16.0"></script>
+  <script src="/static/setup.js?v=0.16.0"></script>
 </body>
 </html>

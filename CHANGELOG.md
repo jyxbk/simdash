@@ -4,6 +4,26 @@ Server/UI and collector have separate version numbers. The collector version is
 in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 `server/static/index.html`.
 
+## UI 0.16.0 — 2026-11-11
+- **New layout**: collapsible sidebar (icons only when collapsed, drawer on
+  phones) with groups Fahren (Übersicht, Live, Cockpit), Auswerten (Sessions,
+  Bestzeiten, Coach & Setup, Rundenvergleich), Fahrer (Safety Rating,
+  Fortschritt), System (Collector & Spiele). Pages via hash (`#coach/setup`;
+  old `#analyse` links still work). Calmer flat design, page titles,
+  breadcrumbs. Cockpit stays full screen without menu.
+- **New logo** "Apex" (racing line with apex point), new app icons.
+- **Safety Rating page**: license card, progress to promotion, CPI, incident
+  points, history per session, tracks and hot corners, driver comparison,
+  rules. Driver card with rating in the sidebar, rating tile on the overview.
+- **Coach & Setup** with sub tabs: Wo Zeit liegt, Setup-Diagnose,
+  Setup-Logbuch (new: log a change, automatic before/after comparison of best,
+  median, spread, invalid share; `/api/setup_changes`), Reifen & Bremsen (new:
+  per-wheel pressure, inner/middle/outer and brake temperatures from
+  collector 0.9, editable pressure window, hints for pressure, camber, ABS/TC
+  per corner).
+- **Track pictures** everywhere a track is named (bests, sessions, coach
+  header, safety): outline from your own laps (`/api/trackmap`).
+
 ## Server · Collector 0.9.1 — 2026-11-11
 - **Safety Rating** modelled on iRacing (own formulas): incident points per
   corner (CPI), license classes R/D/C/B/A with 0.00–4.99, the rating moves

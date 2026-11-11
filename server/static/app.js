@@ -103,6 +103,41 @@ function refreshCornerViews() {
   if (typeof live !== "undefined" && live.combo) { live.coachId = null; loadLiveCoach(); }
 }
 
+/* --- Streckenbild: Umriss aus eigenen Runden (/api/trackmap), zwischengespeichert ---------------- */
+const TRACK_SHAPES = new Map();
+function trackThumb(x, size = 44) {
+  const box = h("span", { class: "tthumb", style: `width:${size}px;height:${size}px`, "aria-hidden": "true" });
+  const key = [x.game, x.track, x.layout || ""].join("␟");
+  const draw = (d) => {
+    const X = d && d.x, Z = d && d.z;
+    const idx = X ? X.map((_, i) => i).filter((i) => X[i] != null && Z[i] != null) : [];
+    if (idx.length < 10) { box.classList.add("none"); return; }
+    const xs = idx.map((i) => X[i]), zs = idx.map((i) => Z[i]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), z0 = Math.min(...zs), z1 = Math.max(...zs);
+    const pad = 3, k = (size - 2 * pad) / Math.max(1, x1 - x0, z1 - z0);
+    const ox = (size - (x1 - x0) * k) / 2, oz = (size - (z1 - z0) * k) / 2;
+    const dd = idx.map((i, j) => `${j ? "L" : "M"}${(ox + (X[i] - x0) * k).toFixed(1)},${(oz + (Z[i] - z0) * k).toFixed(1)}`).join("") + "Z";
+    const svg = s("svg", { viewBox: `0 0 ${size} ${size}`, width: size, height: size });
+    svg.append(s("path", { d: dd, fill: "none", stroke: "currentColor", "stroke-width": Math.max(1.5, size / 26), "stroke-linejoin": "round" }));
+    const [sx, sz] = [ox + (X[idx[0]] - x0) * k, oz + (Z[idx[0]] - z0) * k];
+    svg.append(s("circle", { cx: sx, cy: sz, r: Math.max(2, size / 18), fill: "var(--accent)" }));   // Start/Ziel
+    box.replaceChildren(svg);
+  };
+  let v = TRACK_SHAPES.get(key);
+  if (!v) {
+    v = getJSON(`/api/trackmap?${new URLSearchParams({ game: x.game, track: x.track, layout: x.layout || "", points: 150 })}`)
+      .catch(() => null).then((d) => { TRACK_SHAPES.set(key, d); return d; });
+    TRACK_SHAPES.set(key, v);
+  }
+  if (v instanceof Promise) v.then(draw); else draw(v);
+  return box;
+}
+/** Strecke + Auto als Kennzeichen (Streckenbild, Name, Auto, Spiel). */
+function comboBadge(x, size = 44) {
+  return h("span", { class: "combo-badge" }, trackThumb(x, size),
+    h("span", { class: "cb-t" }, h("b", {}, trackName(x)), h("span", {}, `${pretty(x.car)} · ${gameName(x.game)}`)));
+}
+
 const comboKey = (x) => [x.game, x.track, x.layout, x.car].join("␟");
 const isCounting = (l) => l.valid !== false && !l.estimated;   // zählt für die Bestzeit
 const driverParam = () => (state.driver && state.driver !== ALL_DRIVERS ? { driver: state.driver } : {});
@@ -255,7 +290,7 @@ function renderBests(bests, laps) {
       onclick: () => openDetail(c),
     },
       h("div", { class: "card-top" },
-        h("div", {}, h("div", { class: "track" }, trackName(c)), h("div", { class: "car" }, pretty(c.car))),
+        h("div", { class: "card-id" }, trackThumb(c, 40), h("div", {}, h("div", { class: "track" }, trackName(c)), h("div", { class: "car" }, pretty(c.car)))),
         h("span", { class: "game" }, gameName(c.game))),
       h("div", { class: "time" }, v ? fmt(v.lap_time_ms) : "–:––.–––"),
       sparkline(byCombo.get(key) || []),
@@ -322,10 +357,10 @@ function renderSessions(laps, bests) {
     const open = state.openSessions.has(sk) || (idx === 0 && !state.openSessions.has(`closed:${sk}`));
     const det = h("details", { class: "session", open: open || null },
       h("summary", { class: "session-head" },
-        h("div", {},
+        h("div", { class: "session-id" }, trackThumb(first, 36), h("div", {},
           h("div", { class: "what" }, trackName(first), " ", h("span", { class: "car" }, `· ${pretty(first.car)}`)),
           h("div", { class: "info" },
-            `${gameName(first.game)} · ${SESSION_NAMES[first.session_type] || first.session_type || "Session"}${first.online ? " · online" : ""} · ${fmtDate(last.recorded_at)} · ${ls.length} ${ls.length === 1 ? "Runde" : "Runden"}`)),
+            `${gameName(first.game)} · ${SESSION_NAMES[first.session_type] || first.session_type || "Session"}${first.online ? " · online" : ""} · ${fmtDate(last.recorded_at)} · ${ls.length} ${ls.length === 1 ? "Runde" : "Runden"}`))),
         h("div", { class: "session-side" },
           h("div", { class: "session-best" }, "Beste Runde ", h("b", {}, sBest ? fmt(sBest) : "–")),
           h("button", { class: "driver-btn", type: "button", title: "Bericht zu dieser Session",
@@ -359,7 +394,7 @@ function renderSessions(laps, bests) {
 /** Kombination in der Analyse öffnen (wechselt in den Analyse-Tab). */
 function openDetail(c) {
   state.selected = comboKey(c);
-  if (currentTab() !== "analyse") location.hash = "#analyse";   // showTab → openAnalyse
+  if (currentPage() !== "coach") location.hash = "#coach";   // showTab → openAnalyse
   else openAnalyse();
   window.scrollTo({ top: 0 });
 }
@@ -371,7 +406,7 @@ async function openAnalyse() {
   const empty = $("#analyse-empty");
   const hasData = bests.length > 0;
   empty.hidden = hasData;
-  for (const id of ["#coach", "#handling", "#analysis", "#laptimes", ".an-head", ".an-row"]) $(id).hidden = !hasData;
+  for (const id of ["#coach", "#handling", "#analysis", "#laptimes", ".an-head", ".an-stack"]) $(id).hidden = !hasData;
   if (!hasData) {
     empty.replaceChildren(h("p", { class: "analysis-empty" }, state.loaded ? "Mit diesen Filtern gibt es keine Runden. Wähle oben ein anderes Spiel oder „Alle“." : "Lädt …"));
     return;
@@ -381,6 +416,7 @@ async function openAnalyse() {
   sel.replaceChildren(...bests.map((b) => h("option", { value: comboKey(b) },
     `${trackName(b)} · ${pretty(b.car)} · ${gameName(b.game)}${b.best_valid ? " · " + fmt(b.best_valid.lap_time_ms) : ""}`)));
   sel.value = state.selected;
+  $("#combo-badge").replaceChildren(comboBadge(c, 52));
   $("#detail-title").textContent = `${trackName(c)} · ${pretty(c.car)} · ${gameName(c.game)} · ${c.laps} ${c.laps === 1 ? "Runde" : "Runden"}`;
   renderLegend();
   await refreshDetail(c);
@@ -405,6 +441,7 @@ async function refreshDetail(c) {
   await loadAnalysis(c);
   loadCoach(c);
   loadHandling(c);
+  if (typeof onComboLoaded === "function") onComboLoaded(c);
   if (keepSel && analysis.traced.some((l) => String(l.id) === keepSel[0]) && analysis.traced.some((l) => String(l.id) === keepSel[1])) {
     [$("#pick-lap").value, $("#pick-ref").value] = keepSel;
     renderAnalysis();

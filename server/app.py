@@ -98,6 +98,21 @@ CREATE TABLE IF NOT EXISTS lap_traces (
     data  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS setup_changes (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    game    TEXT NOT NULL,
+    track   TEXT NOT NULL,
+    layout  TEXT NOT NULL DEFAULT '',
+    car     TEXT NOT NULL,
+    driver  TEXT NOT NULL DEFAULT '',
+    part    TEXT NOT NULL,
+    before  TEXT NOT NULL DEFAULT '',
+    after   TEXT NOT NULL DEFAULT '',
+    note    TEXT NOT NULL DEFAULT '',
+    at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS setup_changes_combo ON setup_changes (game, track, layout, car);
+
 CREATE TABLE IF NOT EXISTS lap_stats (
     uid   TEXT PRIMARY KEY REFERENCES laps(uid) ON DELETE CASCADE,
     data  TEXT NOT NULL
@@ -895,6 +910,47 @@ class SetupNoteIn(BaseModel):
     car: str = Field(min_length=1, max_length=120)
     driver: str = Field(default="", max_length=80)
     text: str = Field(min_length=1, max_length=2000)
+
+
+class SetupChangeIn(BaseModel):
+    game: str = Field(min_length=1, max_length=40)
+    track: str = Field(min_length=1, max_length=80)
+    layout: str = Field(default="", max_length=80)
+    car: str = Field(min_length=1, max_length=120)
+    driver: str = Field(default="", max_length=80)
+    part: str = Field(min_length=1, max_length=60)
+    before: str = Field(default="", max_length=40)
+    after: str = Field(default="", max_length=40)
+    note: str = Field(default="", max_length=300)
+    at: datetime | None = None          # Standard: jetzt (Runden danach zählen als „nachher“)
+
+
+@app.get("/api/setup_changes")
+def list_setup_changes(game: str, track: str, car: str, layout: str = "") -> list[dict]:
+    with db() as con:
+        rows = con.execute("SELECT * FROM setup_changes WHERE game=? AND track=? AND layout=? AND car=? ORDER BY at, id",
+                           (game, track, layout, car)).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/setup_changes", dependencies=[Depends(require_lan)])
+def add_setup_change(body: SetupChangeIn) -> dict:
+    at = (body.at or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat(timespec="milliseconds")
+    with db() as con:
+        cur = con.execute("INSERT INTO setup_changes (game, track, layout, car, driver, part, before, after, note, at) "
+                          "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                          (body.game, body.track, body.layout, body.car, body.driver.strip(), body.part.strip(),
+                           body.before.strip(), body.after.strip(), body.note.strip(), at))
+    return {"id": cur.lastrowid, "at": at}
+
+
+@app.delete("/api/setup_changes/{change_id}", dependencies=[Depends(require_lan)])
+def delete_setup_change(change_id: int) -> dict:
+    with db() as con:
+        cur = con.execute("DELETE FROM setup_changes WHERE id=?", (change_id,))
+    if not cur.rowcount:
+        raise HTTPException(404, "Änderung nicht gefunden")
+    return {"ok": True}
 
 
 @app.get("/api/notes")

@@ -12,26 +12,26 @@ const live = {
 };
 const LIVE_STALE_S = 4;
 
-/* --- Tabs ------------------------------------------------------------------ */
-function currentTab() {
-  return location.hash === "#live" || location.hash === "#cockpit" ? "live" : location.hash.startsWith("#analyse") ? "analyse" : "overview";
-}
+/* --- Seiten (Routing in shell.js) ------------------------------------------ */
 function showTab() {
-  const tab = currentTab(), isLive = tab === "live";
+  const page = currentPage(), tab = currentTab(), isLive = tab === "live";
   document.body.classList.toggle("is-live", isLive);
   document.body.dataset.tab = tab;
+  document.body.dataset.page = page;
   $("#overview-view").hidden = tab !== "overview";
   $("#analyse-view").hidden = tab !== "analyse";
   $("#live-view").hidden = !isLive;
-  $("#filters").hidden = isLive;
-  for (const a of document.querySelectorAll(".tabs a")) {
-    if (a.dataset.tab === tab) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
-  }
+  $("#safety-view").hidden = page !== "safety";
+  $("#collector-view").hidden = page !== "collector";
+  $("#filters").hidden = isLive || page === "safety" || page === "collector";
   $("#tooltip").hidden = true;
+  shellRoute();
   if (isLive) startLive(); else { stopLive(); if (live.wasLive) load(); }
-  if (tab === "analyse") openAnalyse();
+  if (tab === "analyse") { if (live.lastTab === "analyse") redrawAnalyse(); openAnalyse(); }
   if (typeof cpSync === "function") cpSync();
   live.wasLive = isLive;
+  live.lastTab = tab;
+  window.scrollTo({ top: 0 });
 }
 window.addEventListener("hashchange", showTab);
 

@@ -239,3 +239,14 @@ def test_lap_stats_roundtrip(client):
 def test_lap_stats_too_big_rejected(client):
     r = client.post("/api/laps", json=[lap("stats0003", 81000, stats={"x": "y" * 5000})], headers=AUTH)
     assert r.status_code == 422
+
+
+def test_setup_changes_crud(client):
+    q = {"game": "acevo", "track": "road_atlanta", "car": "bmw_m4_gt3"}
+    r = client.post("/api/setup_changes", json={**q, "part": "Stabilisator hinten", "before": "5", "after": "4",
+                                                 "at": "2026-11-01T14:30:00+01:00"}, headers=AUTH)
+    assert r.status_code == 200 and r.json()["at"].startswith("2026-11-01T13:30")
+    rows = client.get("/api/setup_changes", params=q).json()
+    assert len(rows) == 1 and rows[0]["after"] == "4"
+    assert client.delete(f"/api/setup_changes/{rows[0]['id']}", headers=AUTH).status_code == 200
+    assert client.get("/api/setup_changes", params=q).json() == []
