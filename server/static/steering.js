@@ -5,82 +5,105 @@
 // Verläufe aus analysis.traced. Nutzt h/$/drawXY/cornerLabel aus app.js, coachState aus coach.js.
 // ---------------------------------------------------------------------------
 const steerState = { sel: null, chart: null };
-const STEER_KINDS = { turn_in_later: "später einlenken", turn_in_earlier: "früher einlenken", unwind_earlier: "früher aufmachen",
-  fewer_corrections: "weniger korrigieren", no_countersteer: "Gegenlenken vermeiden", steer_calmer: "ruhiger lenken", less_lock: "weniger einschlagen" };
+const TECH_GROUPS = [
+  { key: "brake", title: "1 · Anbremsen", rule: "Hart und gerade anbremsen: Bremsdruck schnell aufbauen, solange das Auto noch gerade ist.",
+    kinds: ["brake_build", "brake_later", "brake_earlier", "entry_speed"] },
+  { key: "turnin", title: "2 · Einlenken & Trail-Braking", rule: "Je mehr Lenkung, desto weniger Bremse: beim Einlenken die Bremse schrittweise lösen. Einmal sauber einlenken statt nachkorrigieren.",
+    kinds: ["trail_more", "less_brake_lock", "turn_in_later", "turn_in_earlier", "fewer_corrections", "steer_calmer", "less_lock"] },
+  { key: "apex", title: "3 · Scheitel", rule: "Nicht rollen: zwischen Bremse und Gas keine Lücke. Tempo mitnehmen, in schnellen Kurven voll bleiben, wo es geht.",
+    kinds: ["coast_less", "carry_speed", "lift_brief", "lift_softer", "flat_out"] },
+  { key: "exit", title: "4 · Ausgang", rule: "Gas anlegen, sobald du nicht weiter einlenkst; Vollgas erst mit aufgehender Lenkung. Gleichmäßig aufbauen, nicht pumpen.",
+    kinds: ["throttle_pickup", "throttle_earlier", "throttle_smooth", "less_throttle_lock", "unwind_earlier", "better_exit", "no_countersteer", "gear_higher", "gear_lower"] },
+];
+const TECH_KINDS = new Set(TECH_GROUPS.flatMap((g) => g.kinds));
 
 function renderSteering() {
   const box = $("#steering-body");
-  if (!box || currentPage() !== "coach" || coachSub() !== "lenkung") return;
+  if (!box || currentPage() !== "coach" || coachSub() !== "technik") return;
   const d = coachState.data;
   if (!d || !d.corners) { box.replaceChildren(h("p", { class: "muted-sm" }, "Lädt …")); return; }
-  const rows = d.corners.filter((c) => c.steer);
-  if (!rows.length) {
-    box.replaceChildren(h("p", {}, "Für diese Kombination gibt es noch keine Runden mit Lenkdaten (ab Collector 0.6). Einfach fahren – ab der nächsten Session ist der Vergleich da."));
+  if (!d.corners.length || (d.laps_used || 0) < 2) {
+    box.replaceChildren(h("p", {}, "Für die Fahrtechnik braucht es mindestens zwei gültige Runden mit diesem Auto auf dieser Strecke."));
     return;
   }
-  // Zusammenfassung: welche Lenk-Tipps kommen wie oft vor?
-  const count = {};
-  let lost = 0;
-  for (const c of d.corners) {
-    const ks = (c.tips || []).map((t) => t.kind).filter((k) => STEER_KINDS[k]);
-    for (const k of ks) count[k] = (count[k] || 0) + 1;
-    if (ks.length) lost += c.gain_ms || 0;
-  }
-  const top = Object.entries(count).sort((a, b) => b[1] - a[1]);
-  const summary = top.length
-    ? h("p", {}, `In ${d.corners.filter((c) => (c.tips || []).some((t) => STEER_KINDS[t.kind])).length} von ${d.corners.length} Kurven lenkst du anders als bei deiner schnellsten Fahrt dort (zusammen bis ${(lost / 1000).toFixed(2).replace(".", ",")} s). Häufigstes Muster: `,
-      h("b", {}, top.slice(0, 2).map(([k, n]) => `${STEER_KINDS[k]} (${n}×)`).join(", ")), ".")
-    : h("p", {}, "✓ Deine Lenkung entspricht in allen Kurven ungefähr deiner schnellsten Fahrt. Die Zeit liegt woanders (Bremsen, Tempo, Gas).");
-  const cs = rows.filter((c) => c.steer.ref.countersteer).map((c) => cornerShort(c));
-  const fmtM = (v) => (v == null ? "–" : `${v} m`);
-  const pair = (a, b, f) => h("span", { class: "pair" }, h("b", {}, f(a)), h("span", { class: "muted" }, ` / ${f(b)}`));
+  // Je Abschnitt: in welchen Kurven weicht deine Bestzeit-Runde von deiner schnellsten Fahrt ab?
+  const cards = TECH_GROUPS.map((g) => {
+    const hits = d.corners.map((c) => ({ c, t: (c.tips || []).filter((t) => g.kinds.includes(t.kind)) })).filter((x) => x.t.length)
+      .sort((a, b) => b.c.gain_ms - a.c.gain_ms);
+    return h("article", { class: `tech-card ${hits.length ? "warn" : "ok"}` },
+      h("div", { class: "tech-h" }, h("b", {}, g.title), h("span", { class: hits.length ? "warn-ic" : "ok-ic" }, hits.length ? `${hits.length} ${hits.length === 1 ? "Kurve" : "Kurven"}` : "✓ passt")),
+      h("p", { class: "muted-sm" }, g.rule),
+      hits.length ? h("ul", {}, ...hits.slice(0, 4).map((x) => h("li", { style: "cursor:pointer", onclick: () => { steerState.sel = x.c.no; renderSteering(); } },
+        h("b", {}, `${cornerShort(x.c)}: `), x.t[0].text))) : null);
+  });
+  const rows = d.corners.filter((c) => c.steer || c.ref_metrics);
+  const R = (c) => (c.steer ? c.steer.ref : c.ref_metrics) || {};
+  const B = (c) => (c.steer ? c.steer.best : c.best_metrics) || {};
+  const v = (x, suf = "") => (x == null ? "–" : `${x}${suf}`);
+  const pair = (a, b, suf = "") => h("span", { class: "pair" }, h("b", {}, v(a, suf)), h("span", { class: "muted" }, ` / ${v(b, suf)}`));
+  const head = (t, span) => h("th", { colspan: span, class: "grp" }, t);
   const table = h("div", { class: "table-wrap" }, h("table", { class: "ct steer-t num" },
-    h("thead", {}, h("tr", {}, ...["Kurve", "Einlenken vor Scheitel", "Aufmachen nach Scheitel", "Max. Einschlag", "Korrekturen", "Gegenlenken", "Tipp"].map((x) => h("th", {}, x)))),
+    h("thead", {},
+      h("tr", {}, h("th", {}, ""), head("Bremse", 3), head("Lenkung", 3), head("Scheitel", 1), head("Gas", 3), h("th", {}, "")),
+      h("tr", {}, ...["Kurve", "Aufbau", "am Einlenken", "Trail", "Einlenken", "Korrekt.", "Aufmachen", "Rollen", "Anlegen", "bei max. Lenkung", "Lupfer", "Wichtigster Tipp"].map((x) => h("th", {}, x)))),
     h("tbody", {}, ...rows.map((c) => {
-      const r = c.steer.ref, b = c.steer.best;
-      const tip = (c.tips || []).find((t) => STEER_KINDS[t.kind]);
+      const r = R(c), b = B(c);
+      const tip = (c.tips || [])[0];
       return h("tr", { class: steerState.sel === c.no ? "sel" : "", style: "cursor:pointer", onclick: () => { steerState.sel = c.no; renderSteering(); } },
-        h("td", {}, h("b", {}, cornerLabel(c))),
-        h("td", {}, pair(r.turn_in_m, b.turn_in_m, fmtM)),
-        h("td", {}, pair(r.unwind_m, b.unwind_m, fmtM)),
-        h("td", {}, pair(r.steer_peak, b.steer_peak, (v) => (v == null ? "–" : `${Math.round(v * 100)} %`))),
-        h("td", {}, pair(r.corrections, b.corrections, (v) => (v == null ? "–" : String(v)))),
-        h("td", {}, r.countersteer ? h("span", { class: "warn-ic" }, "⚠ ja") : "–"),
-        h("td", { class: "tip-cell" }, tip ? tip.text : h("span", { class: "muted" }, "passt")));
+        h("td", {}, h("b", {}, cornerLabel(c)), h("div", { class: "muted-sm" }, c.gain_ms >= 30 ? `−${(c.gain_ms / 1000).toFixed(2).replace(".", ",")} s` : "")),
+        h("td", {}, pair(r.brake_build_m, b.brake_build_m, " m")), h("td", {}, pair(r.brake_at_turnin, b.brake_at_turnin, " %")),
+        h("td", {}, pair(r.trail_m, b.trail_m, " m")),
+        h("td", {}, pair(r.turn_in_m, b.turn_in_m, " m")), h("td", {}, pair(r.corrections, b.corrections)),
+        h("td", {}, pair(r.unwind_m, b.unwind_m, " m")),
+        h("td", {}, pair(r.coast_m, b.coast_m, " m")),
+        h("td", {}, pair(r.pickup_m, b.pickup_m, " m")), h("td", {}, pair(r.thr_at_steer_peak, b.thr_at_steer_peak, " %")),
+        h("td", {}, pair(r.thr_lifts, b.thr_lifts)),
+        h("td", { class: "tip-cell" }, tip && c.gain_ms >= 30 ? tip.text : h("span", { class: "muted" }, "passt")));
     }))));
   if (steerState.sel == null || !rows.some((c) => c.no === steerState.sel)) {
-    const withTip = rows.filter((c) => (c.tips || []).some((t) => STEER_KINDS[t.kind])).sort((a, b) => b.gain_ms - a.gain_ms);
+    const withTip = rows.filter((c) => (c.tips || []).some((t) => TECH_KINDS.has(t.kind))).sort((a, b) => b.gain_ms - a.gain_ms);
     steerState.sel = (withTip[0] || rows[0]).no;
   }
   const sel = rows.find((c) => c.no === steerState.sel);
-  const chartBox = h("div", { class: "steer-chart", id: "steer-chart" });
-  box.replaceChildren(summary,
-    cs.length ? h("p", { class: "warn-ic" }, `⚠ Gegenlenken (Heck kommt) in ${cs.join(", ")} – dort zuerst Gas und Lenkung entkoppeln.`) : "",
-    h("div", { class: "subchart-title", style: "margin-top:12px" }, `Lenkverlauf ${cornerLabel(sel)}`),
+  const charts = h("div", { class: "tech-charts" },
+    ...[["brk", "Bremse %"], ["st", "Lenkung %"], ["thr", "Gas %"]].map(([k, t]) => h("div", {}, h("div", { class: "muted-sm" }, t), h("div", { class: "steer-chart", "data-k": k }))));
+  const selTips = (sel.tips || []).filter((t) => sel.gain_ms >= 30);
+  box.replaceChildren(
+    h("div", { class: "tech-grid" }, ...cards),
+    h("div", { class: "subchart-title", style: "margin-top:16px" }, `${cornerLabel(sel)} im Detail`),
+    selTips.length ? h("ol", { class: "steps" }, ...selTips.map((t) => h("li", {}, h("span", {}, t.text), h("span", { class: "pill" }, techGroupOf(t.kind))))) :
+      h("p", { class: "muted-sm" }, "Hier fährst du schon wie in deiner schnellsten Fahrt – kein Tipp."),
     h("div", { class: "legend" }, h("span", { class: "key" }, h("i", { class: "swatch", style: "background:var(--series-1)" }), "deine Bestzeit-Runde"),
-      h("span", { class: "key" }, h("i", { class: "swatch", style: "background:var(--series-2)" }), sel.steer.newer ? "schnellste neuere Fahrt dort" : "schnellste Fahrt dort"),
-      h("span", { class: "key muted" }, "x = Verlauf durch die Kurve (Start → Ende), y = Einschlag in % · antippen zeigt Meter zum Scheitel")),
-    chartBox,
-    h("p", { class: "muted-sm" }, "Zeile antippen für den Verlauf einer anderen Kurve. Einlenken = Lenkung erreicht 35 % des Maximums der Kurve, Aufmachen = fällt wieder unter 50 %. Korrekturen = Nachlenken um mehr als 8 % des Maximums."),
+      h("span", { class: "key" }, h("i", { class: "swatch", style: "background:var(--series-2)" }), sel.steer && sel.steer.newer ? "schnellste neuere Fahrt dort" : "schnellste Fahrt dort"),
+      h("span", { class: "key muted" }, "x = Verlauf durch die Kurve · antippen zeigt Meter zum Scheitel")),
+    charts,
+    h("p", { class: "muted-sm" }, "Erste Zahl = deine Bestzeit-Runde, zweite = schnellste Fahrt durch die Kurve. Trail = Meter mit Bremse und Lenkung gleichzeitig; Rollen = Meter ohne Pedal; Anlegen = Meter nach dem Scheitel, an denen das Gas kommt (negativ: davor). Zeile antippen für Details."),
     table);
-  requestAnimationFrame(() => drawSteerChart(chartBox, sel, d));
+  requestAnimationFrame(() => { for (const el of charts.querySelectorAll("[data-k]")) drawSteerChart(el, sel, d, el.dataset.k); });
 }
 
-function drawSteerChart(box, c, d) {
-  const lapA = (analysis.traced || []).find((l) => l.id === c.steer.ref_id);
-  const lapB = (analysis.traced || []).find((l) => l.id === c.steer.best_id);
-  if (!lapA || !lapA.trace.st) { box.replaceChildren(h("p", { class: "muted-sm" }, "Verlauf dieser Runde nicht geladen.")); return; }
-  const n = lapA.trace.st.length, mPer = (d.track_length_m || 4000) / n;
+function techGroupOf(kind) {
+  const g = TECH_GROUPS.find((x) => x.kinds.includes(kind));
+  return g ? g.title.split("· ")[1] : "Allgemein";
+}
+
+function drawSteerChart(box, c, d, key = "st") {
+  const ids = c.steer ? [c.steer.ref_id, c.steer.best_id] : [state.detail && state.detail.pb && state.detail.pb.id, c.best_lap && c.best_lap.id];
+  const lapA = (analysis.traced || []).find((l) => l.id === ids[0]);
+  const lapB = (analysis.traced || []).find((l) => l.id === ids[1]);
+  if (!lapA || !lapA.trace[key]) { box.replaceChildren(h("p", { class: "muted-sm" }, "Verlauf dieser Runde nicht geladen.")); return; }
+  const n = lapA.trace[key].length, mPer = (d.track_length_m || 4000) / n;
   const a = Math.floor(c.start * n), e = Math.ceil(c.end * n), apex = Math.round(c.apex * n);
   const span = ((e - a + n) % n) || n;
   const idx = Array.from({ length: span + 1 }, (_, k) => (a + k) % n);
   const xsM = idx.map((i) => { let dd = i - apex; if (dd > n / 2) dd -= n; if (dd < -n / 2) dd += n; return dd * mPer; });
   const lo = Math.min(...xsM), hi = Math.max(...xsM);
   const xs = xsM.map((v) => (v - lo) / Math.max(1, hi - lo));
-  const vals = (l) => (l && l.trace.st ? idx.map((i) => (l.trace.st[i] == null ? null : l.trace.st[i] * 100)) : null);
+  const f = key === "st" ? 100 : 1;
+  const vals = (l) => (l && l.trace[key] ? idx.map((i) => (l.trace[key][i] == null ? null : l.trace[key][i] * f)) : null);
   let va = vals(lapA), vb = vals(lapB);
   const sum = va.reduce((s0, v) => s0 + (v || 0), 0);
-  if (sum < 0) { va = va.map((v) => (v == null ? null : -v)); if (vb) vb = vb.map((v) => (v == null ? null : -v)); }   // Kurvenrichtung nach oben
+  if (key === "st" && sum < 0) { va = va.map((v) => (v == null ? null : -v)); if (vb) vb = vb.map((v) => (v == null ? null : -v)); }   // Kurvenrichtung nach oben
   const series = [vb ? { values: vb, color: "var(--series-2)" } : null, { values: va, color: "var(--series-1)" }].filter(Boolean);
   box.replaceChildren();
   drawXY(box, { xs, series, zero: true, yFmt: (v) => `${Math.round(v)}`, tip: (i) => [
@@ -88,4 +111,4 @@ function drawSteerChart(box, c, d) {
     `du ${va[i] == null ? "–" : Math.round(va[i]) + " %"}`, vb ? ` · schnellste ${vb[i] == null ? "–" : Math.round(vb[i]) + " %"}` : ""] });
 }
 
-window.addEventListener("resize", () => { if (currentPage() === "coach" && coachSub() === "lenkung") renderSteering(); });
+window.addEventListener("resize", () => { if (currentPage() === "coach" && coachSub() === "technik") renderSteering(); });

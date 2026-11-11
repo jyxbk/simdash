@@ -71,3 +71,51 @@ def test_tips_turn_in_and_unwind():
     assert kinds["turn_in_later"]["value"] == 50
     assert kinds["unwind_earlier"]["value"] == 75
     assert "fewer_corrections" in kinds and "no_countersteer" in kinds
+
+
+def pedal_lap(brk, thr, steer):
+    return {"trace": {"step": 1 / N, "t": [i * 100 for i in range(N)], "v": [150.0] * N, "brk": brk, "thr": thr, "st": steer}}
+
+
+def test_pedals_trail_coast_pickup():
+    steer = ramp([(340, 0), (362, 0), (390, 0.4), (420, 0.4), (450, 0), (460, 0)])
+    # Bremse ab 345 voll, beim Einlenken (ab ~360) langsam lösen bis 395, dann rollen bis 410, Gas ab 410
+    brk = ramp([(340, 0), (345, 100), (360, 100), (395, 0), (460, 0)])
+    thr = ramp([(300, 100), (343, 100), (345, 0), (410, 0), (430, 100), (470, 100)])
+    lap = pedal_lap(brk, thr, steer)
+    m = coach._metrics(lap, C, N)
+    assert m["brake_at_turnin"] >= 60 and m["trail"] > 10
+    assert 10 <= m["coast"] <= 20
+    assert 405 <= m["thr_pickup"] <= 415
+    assert m.get("thr_lifts") == 0
+
+
+def test_technique_tips_compare():
+    ref = {"brake_build": 6.0, "brake_at_turnin": 5, "trail": 2.0, "coast": 6.0, "thr_pickup": 420.0, "thr_lifts": 3,
+           "thr_at_steer_peak": 10, "thr_min": 0, "overload": 0.0, "v_min": 100}
+    best = {"brake_build": 2.0, "brake_at_turnin": 40, "trail": 6.0, "coast": 1.0, "thr_pickup": 410.0, "thr_lifts": 0,
+            "thr_at_steer_peak": 10, "thr_min": 0, "overload": 0.0, "v_min": 102}
+    kinds = {t["kind"] for t in coach.technique_tips(ref, best, N, 5.0)}
+    assert {"brake_build", "trail_more", "coast_less", "throttle_pickup"} <= kinds
+
+
+def test_flat_out_and_brief_lift():
+    ref = {"thr_min": 70, "thr_at_steer_peak": 100, "v_min": 180}
+    best = {"thr_min": 98, "thr_at_steer_peak": 100, "v_min": 185}
+    assert any(t["kind"] == "flat_out" for t in coach.technique_tips(ref, best, N, 5.0))
+    ref2 = {"thr_at_steer_peak": 100, "v_min": 188}
+    best2 = {"thr_at_steer_peak": 69, "v_min": 190}
+    assert [t["kind"] for t in coach.technique_tips(ref2, best2, N, 5.0)] == ["lift_brief"]
+
+
+def test_opening_removes_blips_keeps_lifts():
+    v = [0.0] * 20 + [80.0, 0.0] + [0.0] * 20 + [100.0] * 20 + [100.0, 10.0, 100.0] + [100.0] * 20
+    o = coach._opening(v, 2)
+    assert max(o[18:24]) == 0.0          # Zwischengas-Spitze weg
+    assert min(o[62:66]) <= 10.0         # kurzer Lupfer bleibt
+
+
+def test_lift_softer_when_ref_lifts_hard_before():
+    ref = {"thr_at_steer_peak": 100, "thr_min": 13, "v_min": 188}
+    best = {"thr_at_steer_peak": 61, "thr_min": 56, "v_min": 190}
+    assert [t["kind"] for t in coach.technique_tips(ref, best, N, 5.0)] == ["lift_softer"]

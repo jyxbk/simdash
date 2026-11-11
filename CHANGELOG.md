@@ -4,6 +4,24 @@ Server/UI and collector have separate version numbers. The collector version is
 in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 `server/static/index.html`.
 
+## UI 0.19.0 — 2026-11-11
+- **Driving technique** (brake, steering and throttle together), per corner
+  against your fastest run there, following the usual coaching rules: brake
+  hard and straight, trail-brake (less brake as steering increases), no
+  coasting, pick up throttle once you stop adding lock, full throttle as the
+  steering opens, build throttle smoothly, stay flat where possible.
+  New metrics: brake build-up, brake at turn-in, trail length, brake with
+  high lock, coasting, throttle pick-up, throttle at peak steering, lifts,
+  minimum throttle. Downshift blips are removed (opening filter, throttle
+  ignored while braking); short lifts are kept.
+  New tips: brake_build, trail_more, less_brake_lock, coast_less,
+  throttle_pickup, throttle_smooth, less_throttle_lock, lift_brief,
+  lift_softer, flat_out.
+- Sub tab "Lenkung" became **Fahrtechnik**: four cards (Anbremsen, Einlenken
+  & Trail-Braking, Scheitel, Ausgang) with rule and affected corners, corner
+  detail with tips and brake/steering/throttle traces of both runs, table.
+  Old link `#coach/lenkung` still works.
+
 ## UI 0.18.0 — 2026-11-11
 - **Steering analysis** per corner (coach): turn-in point (|steer| over 35 %
   of the corner's peak, metres before the apex), unwinding (below 50 % after

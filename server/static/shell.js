@@ -35,7 +35,7 @@ const NAV = [
 ];
 const NAV_ITEMS = NAV.flatMap((g) => g.items.map((x) => ({ ...x, group: g.label })));
 const ANALYSE_PAGES = ["coach", "compare", "progress"];
-const COACH_SUBS = ["zeit", "lenkung", "setup", "logbuch", "reifen"];
+const COACH_SUBS = ["zeit", "technik", "setup", "logbuch", "reifen"];
 
 /** Seite aus der Adresse: #coach/setup → coach (Unterseite setup); alte Links #analyse → coach. */
 function currentPage() {
@@ -45,7 +45,8 @@ function currentPage() {
   return NAV_ITEMS.some((x) => x.id === h) ? h : "overview";
 }
 function coachSub() {
-  const s = location.hash.replace(/^#/, "").split("/")[1];
+  let s = location.hash.replace(/^#/, "").split("/")[1];
+  if (s === "lenkung") s = "technik";                       // alter Link
   return COACH_SUBS.includes(s) ? s : "zeit";
 }
 /** Grobe Gruppe für den bestehenden Code (Live-Stream, Analyse-Daten laden, Neuladen). */

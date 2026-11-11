@@ -231,7 +231,7 @@ function renderTyres() {
 async function onSetupPage(page) {
   if (page !== "coach") return;
   const sub = coachSub(), c = curCombo();
-  if (sub === "lenkung" && typeof renderSteering === "function") renderSteering();
+  if (sub === "technik" && typeof renderSteering === "function") renderSteering();
   if (!c) return;
   if (sub === "logbuch") { if (setupState.key !== comboKey(c)) await loadSetupChanges(c); renderSetupLog(); }
   if (sub === "reifen") { const k = comboKey(c) + (state.driver !== ALL_DRIVERS ? state.driver || "" : ""); if (setupState.statsKey !== k) await loadStats(c); renderTyres(); }

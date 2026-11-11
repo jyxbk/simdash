@@ -56,6 +56,14 @@ def _filled(arr: list | None, n: int) -> list[float] | None:
     return [float(x) for x in out]
 
 
+def _opening(v: list[float], w: int) -> list[float]:
+    """Morphologische Öffnung über ±w Punkte (rundum): erst Minimum, dann Maximum. Entfernt Spitzen
+    nach oben, die schmaler als das Fenster sind (Zwischengas), lässt Einbrüche nach unten stehen."""
+    n = len(v)
+    lo = [min(v[(i + d) % n] for d in range(-w, w + 1)) for i in range(n)]
+    return [max(lo[(i + d) % n] for d in range(-w, w + 1)) for i in range(n)]
+
+
 def _smooth(v: list[float], w: int = 1) -> list[float]:
     """Dreiecks-Glättung über ±w Punkte (rundum)."""
     n = len(v)
@@ -313,7 +321,80 @@ def _metrics(lap: dict, c: dict, n: int) -> dict:
             m["steer_peak"] = round(max(abs(x) for x in vals), 2)
             m["steer_work"] = round(sum(abs(vals[i + 1] - vals[i]) for i in range(len(vals) - 1)), 2)
             m.update(_steer_detail(tr, st, c, n, q, m.get("full_throttle")))
+    m.update(_pedal_detail(tr, c, n, q, m, st))
     return m
+
+
+PEDAL_ON = 5             # % Pedal = „drauf“
+
+
+def _pedal_detail(tr: dict, c: dict, n: int, q: int, m: dict, st: list[float] | None) -> dict:
+    """Bremse und Gas im Zusammenspiel mit der Lenkung (Grundregeln: hart und gerade anbremsen,
+    mit zunehmender Lenkung die Bremse lösen = Trail-Braking, nicht rollen, Gas anlegen sobald nicht
+    mehr weiter eingelenkt wird, gleichmäßig aufbauen, in schnellen Kurven voll bleiben)."""
+    a, apex, end = c["start"], c["apex"], c["end"]
+    brk, thr = _filled(tr.get("brk"), n), _filled(tr.get("thr"), n)
+    if brk is None or thr is None:
+        return {}
+    w = max(1, q // 2)
+    # Gas ohne Zwischengas-Stöße beim Runterschalten: kurze Spitzen nach oben fallen weg (Öffnung),
+    # kurze Lupfer nach unten bleiben erhalten,
+    # und solange gebremst wird, zählt Gas nicht. Je Runde nur einmal rechnen (gilt für alle Kurven).
+    key = f"_pedals{q}"
+    if key not in tr:
+        b = _smooth(brk, w)
+        tr[key] = (b, [0.0 if b[i] > PEDAL_ON else x for i, x in enumerate(_opening(thr, max(1, q // 2)))])
+    bs, ts = tr[key]
+    span = (end - a) % n or n
+    idx = [(a + k) % n for k in range(span)]
+    out: dict[str, Any] = {}
+    sm = None
+    if st is not None:
+        if f"_steer_sm{q}" not in tr:
+            tr[f"_steer_sm{q}"] = _smooth(st, max(1, q))
+        sm = tr[f"_steer_sm{q}"]
+    peak_i = m.get("_steer_peak_i")
+    steer_peak = m.get("steer_peak") or 0
+    rel = None
+    if m.get("brake") is not None:
+        bpk_i = max([(int(m["brake"]) + k) % n for k in range((apex - int(m["brake"])) % n + 1)], key=lambda i: bs[i])
+        bpk = bs[bpk_i]
+        out["brake_peak"] = round(bpk)
+        b90 = _cross(bs, int(m["brake"]) % n, bpk_i, 0.9 * bpk)
+        out["brake_build"] = ((b90 - m["brake"]) % n) if b90 is not None else 0.0
+        rel = _cross(bs, bpk_i, end, PEDAL_ON, rising=False)
+        out["brake_release"] = rel
+        ti = m.get("turn_in")
+        if ti is not None and bpk > 0:
+            out["brake_at_turnin"] = round(100 * bs[int(ti) % n] / bpk)
+        if sm is not None and steer_peak:
+            thr_st = max(STEER_MIN, 0.35 * steer_peak)
+            out["trail"] = sum(1 for i in idx if bs[i] > PEDAL_ON and abs(sm[i]) > thr_st)
+            out["overload"] = sum(1 for i in idx if bs[i] > 40 and abs(sm[i]) > 0.7 * steer_peak)
+    # Gas: anlegen (> 10 %) nach dem Lösen der Bremse bzw. ab kurz vor dem Scheitel
+    from_i = int(rel) if rel is not None else (apex - 4 * q) % n
+    # schon am Gas (Vollgas- oder Haltegas-Kurve): kein Anlegepunkt
+    tp = _cross(ts, from_i, end, 10) if ts[from_i % n] < 10 else None
+    out["thr_pickup"] = tp
+    lo = int(rel) if rel is not None else (int(m["turn_in"]) if m.get("turn_in") is not None else a)
+    hi = int(tp) if tp is not None else end
+    out["coast"] = sum(1 for k in range((hi - lo) % n) if bs[(lo + k) % n] < PEDAL_ON and ts[(lo + k) % n] < PEDAL_ON)
+    if peak_i is not None:
+        out["thr_at_steer_peak"] = round(ts[peak_i])
+    # Lupfer: Gas fällt nach dem Anlegen um mehr als 15 Punkte, bevor es voll ist
+    if tp is not None:
+        lifts, top = 0, ts[int(tp) % n]
+        fin = m.get("full_throttle")
+        stop = int(fin) if fin is not None else end
+        for k in range((stop - int(tp)) % n):
+            v = ts[(int(tp) + k) % n]
+            if v > top:
+                top = v
+            elif top - v > 15:
+                lifts, top = lifts + 1, v
+        out["thr_lifts"] = lifts
+    out["thr_min"] = round(min(ts[i] for i in idx))
+    return out
 
 
 STEER_MIN = 0.03         # unter 3 % Lenkeinschlag: geradeaus
@@ -329,7 +410,9 @@ def _steer_detail(tr: dict, st: list[float], c: dict, n: int, q: int, full_thr: 
     Lenkbewegung um mehr als 8 % des Maximums, abzüglich des einen natürlichen (rein, dann raus).
     Gegenlenken = Lenkung gegen die Drehrichtung des Autos."""
     a, apex, end = c["start"], c["apex"], c["end"]
-    sm = _smooth(st, max(1, q))
+    if f"_steer_sm{q}" not in tr:
+        tr[f"_steer_sm{q}"] = _smooth(st, max(1, q))
+    sm = tr[f"_steer_sm{q}"]
     sa = [abs(x) for x in sm]
     idx = [(a + k) % n for k in range((end - a) % n or n)]
     if len(idx) < 3:
@@ -342,7 +425,7 @@ def _steer_detail(tr: dict, st: list[float], c: dict, n: int, q: int, full_thr: 
     thr_in = max(STEER_MIN, 0.35 * peak)
     ti = _cross(sa, a, peak_i, thr_in) if sa[a] < thr_in else None
     uw = _cross(sa, peak_i, (end + 2 * q) % n, max(STEER_MIN, 0.5 * peak), rising=False)
-    out["turn_in"], out["unwind"] = ti, uw
+    out["turn_in"], out["unwind"], out["_steer_peak_i"] = ti, uw, peak_i
     lo = int(ti) if ti is not None else a
     hi = int(math.ceil(uw)) if uw is not None else end
     seg = [sm[(lo + k) % n] for k in range((hi - lo) % n + 1)]
@@ -415,10 +498,60 @@ def tips_for(ref: dict, best: dict, n: int, m_per_idx: float) -> list[dict]:
     return sorted(out, key=lambda t: -t["score"])
 
 
+def technique_tips(ref: dict, best: dict, n: int, m_per_idx: float) -> list[dict]:
+    """Bremse/Gas im Zusammenspiel mit der Lenkung: was die schnellere Fahrt anders macht."""
+    out: list[dict] = []
+    M = lambda k, x: round(x[k] * m_per_idx) if x.get(k) is not None else None
+    rb, bb = M("brake_build", ref), M("brake_build", best)
+    if rb is not None and bb is not None and rb - bb >= 8:
+        out.append({"kind": "brake_build", "value": rb - bb, "score": (rb - bb) / 6,
+                    "text": f"Bremsdruck schneller aufbauen: in {bb} statt {rb} m voll auf der Bremse – solange das Auto gerade ist"})
+    rti, bti = ref.get("brake_at_turnin"), best.get("brake_at_turnin")
+    rt, bt = M("trail", ref), M("trail", best)
+    if rti is not None and bti is not None and bti >= 15 and rti <= bti - 12 and rt is not None and bt is not None and bt - rt >= 8:
+        out.append({"kind": "trail_more", "value": bti - rti, "score": 2.0,
+                    "text": f"Nimm mehr Bremse mit in die Kurve (Trail-Braking): am Einlenkpunkt noch etwa {bti} % statt {rti} % und mit zunehmender Lenkung lösen"})
+    ro, bo = M("overload", ref), M("overload", best)
+    if ro is not None and bo is not None and ro - bo >= 8:
+        out.append({"kind": "less_brake_lock", "value": ro - bo, "score": 1.8,
+                    "text": f"Viel Bremse bei fast vollem Einschlag ({ro} m): die Vorderreifen sind überfordert – die Bremse lösen, bevor du ganz eingelenkt hast"})
+    rc, bc = M("coast", ref), M("coast", best)
+    if rc is not None and bc is not None and rc - bc >= 10:
+        out.append({"kind": "coast_less", "value": rc - bc, "score": (rc - bc) / 8,
+                    "text": f"{rc} m ohne Pedal gerollt (schnellste Fahrt {bc} m): Bremse näher an den Scheitel tragen oder früher Haltegas geben"})
+    d = _dist(ref.get("thr_pickup"), best.get("thr_pickup"), n, m_per_idx)
+    if d is not None and d <= -8:
+        out.append({"kind": "throttle_pickup", "value": round(-d), "score": -d / 5,
+                    "text": f"Gas etwa {round(-d)} m früher anlegen – sobald du nicht mehr weiter einlenkst, nicht erst am Ausgang"})
+    rl, bl = ref.get("thr_lifts"), best.get("thr_lifts")
+    if rl is not None and bl is not None and rl - bl >= 2:
+        out.append({"kind": "throttle_smooth", "value": rl - bl, "score": 1.4,
+                    "text": f"Gas gleichmäßig aufbauen statt nachzulupfen ({rl}× statt {bl}×) – Gas folgt der aufgehenden Lenkung"})
+    rs, bs_ = ref.get("thr_at_steer_peak"), best.get("thr_at_steer_peak")
+    if rs is not None and bs_ is not None and rs - bs_ >= 30 and (ref.get("countersteer") or ref.get("v_min", 0) < best.get("v_min", 0)):
+        if rs >= 95 and (ref.get("thr_min") or 0) < 80 and best.get("thr_min") is not None and best["thr_min"] - ref["thr_min"] >= 15:
+            out.append({"kind": "lift_softer", "value": best["thr_min"], "score": 1.6,
+                        "text": f"Du lupfst früh und hart (auf {ref['thr_min']} %) und bist am Scheitel wieder voll; die schnellere Fahrt lupft später und sanfter (nur auf {best['thr_min']} %)"})
+        elif rs >= 95:
+            out.append({"kind": "lift_brief", "value": bs_, "score": 1.5,
+                        "text": f"Die schnellere Fahrt nimmt hier am Scheitel kurz Gas weg (auf {bs_} %) und trägt dadurch mehr Tempo durch – du bleibst voll"})
+        else:
+            out.append({"kind": "less_throttle_lock", "value": rs - bs_, "score": 1.5,
+                        "text": f"Bei vollem Einschlag schon {rs} % Gas (schnellste Fahrt {bs_} %): erst Gas, wenn die Lenkung aufgeht – sonst schiebt das Auto oder TC greift"})
+    rm_, bm_ = ref.get("thr_min"), best.get("thr_min")
+    if rm_ is not None and bm_ is not None and bm_ >= 95 and rm_ <= 80 and best.get("brake") is None:
+        out.append({"kind": "flat_out", "value": rm_, "score": 2.2,
+                    "text": f"Die schnellere Fahrt bleibt hier voll am Gas – du gehst auf {rm_} % zurück"})
+    if any(t["kind"] == "throttle_pickup" for t in out):
+        out = [t for t in out if (t["kind"] != "throttle_smooth" or t["value"] >= 3) and t["kind"] != "less_throttle_lock"]
+    return out
+
+
 def control_tips(ref: dict, best: dict, n: int | None = None, m_per_idx: float | None = None) -> list[dict]:
     """Gang und Lenkung: was die schnellere Fahrt anders macht (nur wenn beide Runden Daten haben)."""
     out = []
     if n and m_per_idx:
+        out += technique_tips(ref, best, n, m_per_idx)
         d = _dist(ref.get("turn_in"), best.get("turn_in"), n, m_per_idx)
         if d is not None and abs(d) >= 5:
             later = d > 0
@@ -605,6 +738,16 @@ def _round_metrics(m: dict, apex: int, n: int, m_per_idx: float) -> dict:
         out["turn_in_m"] = round(-_dist(apex, m["turn_in"], n, m_per_idx))     # Meter vor dem Scheitel
     if m.get("unwind") is not None:
         out["unwind_m"] = round(_dist(apex, m["unwind"], n, m_per_idx))
+    for k in ("brake_peak", "brake_at_turnin", "thr_at_steer_peak", "thr_lifts", "thr_min"):
+        if k in m:
+            out[k] = m[k]
+    for k, km in (("brake_build", "brake_build_m"), ("trail", "trail_m"), ("overload", "overload_m"), ("coast", "coast_m")):
+        if m.get(k) is not None:
+            out[km] = round(m[k] * m_per_idx)
+    if m.get("brake_release") is not None:
+        out["release_m"] = round(-_dist(apex, m["brake_release"], n, m_per_idx))   # vor dem Scheitel (+) / danach (−)
+    if m.get("thr_pickup") is not None:
+        out["pickup_m"] = round(_dist(apex, m["thr_pickup"], n, m_per_idx))        # nach dem Scheitel (+) / davor (−)
     if m.get("brake") is not None:
         out["brake_m"] = round(((apex - m["brake"]) % n) * m_per_idx)
     if m.get("full_throttle") is not None:
