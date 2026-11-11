@@ -33,6 +33,7 @@ function compareCorner(corner) {
 }
 
 function renderCoach() {
+  if (typeof renderSteering === "function") renderSteering();
   const d = coachState.data, body = $("#coach-body"), sub = $("#coach-sub");
   if (!body) return;
   if (!d) { sub.textContent = ""; body.replaceChildren(h("p", { class: "analysis-empty" }, "Coach gerade nicht erreichbar.")); return; }

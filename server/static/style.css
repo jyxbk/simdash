@@ -1251,3 +1251,11 @@ body[data-page="bests"] #overview-view .section-head, body[data-page="sessions"]
   background: var(--surface-1); border: 1px solid var(--border-strong); border-radius: 12px; padding: 14px; box-shadow: var(--shadow); font-size: 14px; }
 .lv-voice .voice-opts label { display: flex; gap: 8px; align-items: flex-start; }
 .lv-voice .voice-opts button { justify-self: start; }
+
+/* --- Lenkung ---------------------------------------------------------------- */
+.steer-chart { height: 220px; margin-top: 6px; }
+.steer-chart svg { width: 100%; height: 100%; display: block; }
+.steer-t td { white-space: nowrap; }
+.steer-t td.tip-cell { white-space: normal; min-width: 220px; }
+.steer-t tr.sel td { background: var(--accent-soft); }
+.steer-t .muted { color: var(--text-muted); }

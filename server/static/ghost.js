@@ -30,6 +30,11 @@ function ghostPhrase(c) {
     steer_calmer: ["ruhiger lenken", "ruhiger lenken"],
     less_lock: ["sanfter einlenken", "sanfter einlenken"],
     brake_later_ok: ["ruhiger rein", "ruhiger rein"],
+    turn_in_later: [`${v} m später einlenken`, `${v} Meter später einlenken`],
+    turn_in_earlier: [`${v} m früher einlenken`, `${v} Meter früher einlenken`],
+    unwind_earlier: [`Lenkung ${v} m früher auf`, "Lenkung früher aufmachen"],
+    fewer_corrections: ["einmal einlenken, Winkel halten", "einmal einlenken und halten"],
+    no_countersteer: ["Gas weicher, Heck ruhig", "Gas weicher"],
     entry: ["Anbremsen und Einlenken sauberer", "sauberer rein"],
     exit: ["früher und sauberer rausbeschleunigen", "früher raus"],
   }[t.kind];

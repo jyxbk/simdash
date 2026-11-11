@@ -35,7 +35,7 @@ const NAV = [
 ];
 const NAV_ITEMS = NAV.flatMap((g) => g.items.map((x) => ({ ...x, group: g.label })));
 const ANALYSE_PAGES = ["coach", "compare", "progress"];
-const COACH_SUBS = ["zeit", "setup", "logbuch", "reifen"];
+const COACH_SUBS = ["zeit", "lenkung", "setup", "logbuch", "reifen"];
 
 /** Seite aus der Adresse: #coach/setup → coach (Unterseite setup); alte Links #analyse → coach. */
 function currentPage() {

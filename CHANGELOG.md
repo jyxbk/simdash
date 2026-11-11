@@ -4,6 +4,19 @@ Server/UI and collector have separate version numbers. The collector version is
 in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 `server/static/index.html`.
 
+## UI 0.18.0 — 2026-11-11
+- **Steering analysis** per corner (coach): turn-in point (|steer| over 35 %
+  of the corner's peak, metres before the apex), unwinding (below 50 % after
+  the peak, metres after the apex), peak lock, corrections (direction changes
+  over 8 % of the peak, smoothed signal, minus the natural one), countersteer
+  (steer against the car's yaw; sign per game from correlation). Compared
+  with the fastest run through the corner (or the fastest newer run with
+  steering data). New tips: turn in earlier/later, unwind earlier, fewer
+  corrections, avoid countersteer. `corner.steer` in `/api/coach`.
+- New sub tab **Coach & Setup → Lenkung**: summary of steering patterns,
+  per-corner table you vs fastest, steering trace of both runs through the
+  selected corner. Ghost coach knows the new hints.
+
 ## UI 0.17.0 · Collector 0.10.0 — 2026-11-11
 - **Ghost coach** in the cockpit: about 220 m before every corner where your
   best run through that corner was faster (≥ 30 ms), a short hint from the
