@@ -32,9 +32,10 @@ class Drive:
         self.laps = []
         self.count = 0
         self.last = -1
+        self.kw = {}
 
     def feed(self, **kw):
-        self.laps += self.det.update(snap(lap_count=self.count, last_ms=self.last, **kw))
+        self.laps += self.det.update(snap(lap_count=self.count, last_ms=self.last, **{**self.kw, **kw}))
         self.clock.t += 0.02
 
     def lap(self, ms, invalid_at=None, pit_start=False, pit_end=False, counter=True, counter_delay=0,
@@ -53,7 +54,7 @@ class Drive:
             c = self.count + (1 if counter and f >= counter_delay else 0)
             last = ms if counter and f >= last_delay else self.last
             self.laps += self.det.update(snap(lap_count=c, last_ms=last, current_ms=20 * (f + 1),
-                                              npos=0.001, valid_now=False if f == 0 else True))
+                                              npos=0.001, valid_now=False if f == 0 else True, **self.kw))
             self.clock.t += 0.02
         if counter:
             self.count += 1
@@ -426,3 +427,70 @@ def test_lmu_snapshot_reads_expected_offsets():
     assert te["yaw"] == 0.42 and te["bb"] == 0.55 and te["abs_on"] is True and te["tc_lvl"] == 3
     assert te["tp"][1] == 27.0 and te["bt"][1] == 450
     assert te["ti"][1] == 80 and te["to"][1] == 90 and te["tm"][1] == 85   # rechtes Rad: links = innen
+
+
+def test_reset_to_pits_mid_lap_discards_partial_lap():
+    """ACC 14.11.: Runde bei 17 % ungültig, dann "Zurück in die Box": Uhr -> 0, npos -> 1.0,
+    Zähler bleibt. Die nächste (gültige) Runde darf die Ungültigkeit nicht erben."""
+    d = Drive()
+    d.feed()
+    d.lap(91000)
+    for i in range(18):                       # angefangene Runde, ab 5 s ungültig
+        cur = i * 1000 + 500
+        d.feed(current_ms=cur, npos=cur / 91000, valid_now=cur < 5000)
+    d.feed(current_ms=32, npos=1.0, valid_now=True, in_pit_lane=True)   # Box
+    d.feed(current_ms=1000, npos=0.002, valid_now=True, in_pit_lane=True)
+    d.lap(95000, pit_start=True)
+    d.settle()
+    assert [l.lap_time_ms for l in d.laps] == [91000, 95000]
+    out = d.laps[1]
+    assert out.valid is True
+    assert out.outlap is True
+    assert out.lap_number == 2
+
+
+def test_line_crossing_time_reset_before_counter_keeps_lap():
+    """ACC setzt die Uhr an der Linie oft ein paar Frames vor dem Zähler zurück (npos ~1.0)."""
+    d = Drive()
+    d.feed()
+    d.lap(91000, invalid_at=30000, counter_delay=3)
+    d.settle()
+    assert len(d.laps) == 1 and d.laps[0].valid is False
+
+
+def test_race_start_lap_with_running_clock_is_outlap():
+    """ACC online Spa 13.11.: Uhr lief seit der Startaufstellung, Runde 1 = 7:30 bei ~2:30 Fahrzeit."""
+    d = Drive()
+    d.kw = {"game": "acc"}
+    d.feed(current_ms=0, npos=0.9)
+    for i in range(150):                       # 150 s Fahrt, Uhr steht schon bei 300 s
+        cur = 300_000 + i * 1000
+        d.feed(current_ms=cur, npos=min(i / 150, 0.999))
+    d.laps += d.det.update(snap(lap_count=1, last_ms=450_000, current_ms=20, npos=0.001, game="acc"))
+    d.count, d.last = 1, 450_000
+    d.lap(146000)
+    d.settle()
+    assert [l.lap_time_ms for l in d.laps] == [450_000, 146000]
+    assert d.laps[0].outlap is True and "Startrunde" in d.laps[0].note
+    assert d.laps[1].outlap is False and d.laps[1].note == ""
+
+
+def test_acc_result_laps_player_only(tmp_path):
+    import json as _json
+    d = {"snapShot": {"leaderBoardLines": [
+            {"car": {"carId": 0, "drivers": [{"playerId": "S7656"}, {"playerId": "S7656"}]}},
+            {"car": {"carId": 5, "drivers": [{"playerId": "0"}]}}]},
+         "laps": [{"carId": 0, "lapTime": 92270, "flags": 0}, {"carId": 5, "lapTime": 91000, "flags": 0},
+                  {"carId": 0, "lapTime": 91382, "flags": 1}]}
+    raw = _json.dumps(d).encode("utf-16-le")             # ACC schreibt UTF-16 ohne BOM
+    assert sc.acc_result_laps(raw) == [{"lap_time_ms": 92270, "flags": 0}, {"lap_time_ms": 91382, "flags": 1}]
+    f = tmp_path / "Race_1.json"
+    f.write_bytes(raw)
+    import os as _os, time as _time
+    old = _time.time() - 60
+    _os.utime(f, (old, old))
+    w = sc.AccResults([tmp_path])
+    ch = w.changed()
+    assert [p for p, _ in ch] == [f]
+    w.done(*ch[0])
+    assert w.changed() == []

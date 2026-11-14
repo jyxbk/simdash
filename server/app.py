@@ -13,7 +13,7 @@ import secrets
 import sqlite3
 import time
 from contextlib import asynccontextmanager, contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -187,6 +187,17 @@ class LapIn(BaseModel):
 
 class NoteIn(BaseModel):
     note: str = Field(default="", max_length=200)
+
+
+class AccResultLap(BaseModel):
+    lap_time_ms: int = Field(gt=0)
+    flags: int = 0
+
+
+class AccResultsIn(BaseModel):
+    """Runden des Spielers aus ACCs Results/*.json (nur Offline-Sessions schreiben die Datei)."""
+    file_time: datetime                      # Änderungszeit der Datei = Ende der Session
+    laps: list[AccResultLap] = Field(max_length=500)
 
 
 def require_token(authorization: str = Header(default="")) -> None:
@@ -881,6 +892,49 @@ def assign_driver(body: AssignIn) -> dict:
             n += con.execute("UPDATE laps SET driver=? WHERE session_uid=?",
                              (body.driver.strip(), body.session_uid)).rowcount
     return {"updated": n}
+
+
+@app.post("/api/acc_results", dependencies=[Depends(require_token)])
+def acc_results(body: AccResultsIn) -> dict:
+    """Gleicht ACC-Runden mit ACCs eigener Ergebnisdatei ab.
+
+    ACC verwirft manche Runden erst an der Linie (Shared Memory meldet bis zuletzt gültig).
+    Zuordnung über die exakte Rundenzeit innerhalb des Session-Zeitraums.
+    flags: Bit 1 = ungültig, 4 = Outlap, 8 = Inlap. Outlap/Inlap werden nur gesetzt, nie gelöscht.
+    """
+    if not body.laps:
+        return {"matched": 0, "updated": 0}
+    end = body.file_time.astimezone(timezone.utc)
+    span_ms = sum(l.lap_time_ms for l in body.laps) + 30 * 60 * 1000
+    start = end - timedelta(milliseconds=span_ms)
+    end = end + timedelta(minutes=2)
+    matched = updated = 0
+    with db() as con:
+        rows = con.execute(
+            "SELECT id, lap_time_ms, valid, outlap, inlap, recorded_at FROM laps WHERE game='acc'"
+        ).fetchall()
+        cand = {}
+        for r in rows:
+            try:
+                t = datetime.fromisoformat(r["recorded_at"])
+            except ValueError:
+                continue
+            if start <= t <= end:
+                cand.setdefault(r["lap_time_ms"], []).append(r)
+        for lap in body.laps:
+            hits = cand.get(lap.lap_time_ms) or []
+            if len(hits) != 1:
+                continue                     # keine oder mehrdeutige Zuordnung -> nichts ändern
+            r = hits[0]
+            matched += 1
+            valid = 0 if lap.flags & 1 else 1
+            outlap = 1 if lap.flags & 4 else r["outlap"]
+            inlap = 1 if lap.flags & 8 else r["inlap"]
+            if (r["valid"], r["outlap"], r["inlap"]) != (valid, outlap, inlap):
+                con.execute("UPDATE laps SET valid=?, outlap=?, inlap=? WHERE id=?",
+                            (valid, outlap, inlap, r["id"]))
+                updated += 1
+    return {"matched": matched, "updated": updated}
 
 
 @app.patch("/api/laps/{lap_id}", dependencies=[Depends(require_token)])

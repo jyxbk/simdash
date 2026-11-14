@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "0.10.0"
+VERSION = "0.10.1"
 POLL_HZ = 50
 
 log = logging.getLogger("simdash")
@@ -677,6 +677,11 @@ class LapDetector:
                 note = f"+{inc}x Incidents"
                 # iRacing wertet Runden mit Incident (Off-Track, Kontakt) nicht für die Bestzeit
                 self.lap_invalid = self.lap_valid_known = True
+        if ref.game == "acc" and self._clock_ran_before_lap(time_ms):
+            # ACC online: Die Rundenuhr läuft seit Formationsrunde/Startaufstellung, die
+            # "Rundenzeit" von Runde 1 enthält Minuten Wartezeit -> wie eine Outlap behandeln.
+            self.lap_started_in_pit = True
+            note = (note + " " if note else "") + "Startrunde (Uhr lief schon vorher)"
         trace = build_trace(self.samples)
         if trace is not None and self.invalid_at is not None and 0 <= self.invalid_at <= 1:
             trace["inv_at"] = round(self.invalid_at, 4)
@@ -689,6 +694,18 @@ class LapDetector:
             online=ref.online, driver=ref.driver,
             recorded_at=self.wallclock().isoformat(timespec="milliseconds"),
         )
+
+    def _clock_ran_before_lap(self, time_ms: int) -> bool:
+        """Rundenzeit viel länger, als das gefahrene Stück hochgerechnet ergibt?"""
+        pts = [(p, c) for p, c, *_ in self.samples if p is not None and c and c > 0]
+        if len(pts) < 20:
+            return False
+        (p0, c0), (p1, c1) = pts[0], pts[-1]
+        frac = p1 - p0
+        if frac < 0.5 or c1 <= c0:
+            return False
+        expected = (c1 - c0) / frac
+        return time_ms > 1.4 * expected + 5000
 
     def flush(self) -> list[Lap]:
         """Offene Runde sofort abschließen (Spiel beendet, Mapping weg)."""
@@ -752,6 +769,16 @@ class LapDetector:
                 elif now >= p["deadline"]:
                     out.append(p["lap"])
                     self.pending = None
+
+        # Runde abgebrochen (ACC/AC: "Zurück in die Box", Neustart): Die Uhr springt mitten
+        # auf der Strecke auf ~0, der Zähler bleibt. Angefangene Runde verwerfen, damit die
+        # nächste nicht deren Ungültigkeit, Verlauf und Outlap-Status erbt.
+        if (s.lap_count == prev.lap_count and not self.pending
+                and prev.current_ms >= 5000 and s.current_ms < prev.current_ms - 5000
+                and prev.npos < 0.9):
+            self._new_lap_state(s)
+            self.prev = s
+            return out
 
         # Gültigkeit und laufende Zeit der aktuellen Runde mitschreiben
         if s.lap_count == prev.lap_count:
@@ -1751,18 +1778,104 @@ class Store:
             os.replace(tmp, self.queue_path)
 
 
+
+# --- ACC: Abgleich mit der Ergebnisdatei ----------------------------------------
+
+def acc_results_dirs() -> list[Path]:
+    home = Path(os.environ.get("USERPROFILE") or Path.home())
+    sub = Path("Assetto Corsa Competizione") / "Results"
+    return [home / "Documents" / sub, home / "OneDrive" / "Documents" / sub,
+            home / "OneDrive" / "Dokumente" / sub]
+
+
+def acc_result_laps(raw: bytes) -> list[dict]:
+    """Runden des Spielers (Steam-ID im playerId) aus Results/*.json, in Fahrreihenfolge."""
+    text = raw.decode("utf-16") if raw[1:2] == b"\x00" else raw.decode("utf-8-sig")
+    d = json.loads(text)
+    lines = (d.get("snapShot") or {}).get("leaderBoardLines") or []
+    mine = {ln["car"]["carId"] for ln in lines
+            if any(str(dr.get("playerId", "0")).startswith("S") for dr in ln["car"].get("drivers", []))}
+    return [{"lap_time_ms": int(l["lapTime"]), "flags": int(l.get("flags", 0))}
+            for l in d.get("laps") or [] if l.get("carId") in mine and l.get("lapTime", 0) > 0]
+
+
+class AccResults:
+    """Merkt sich die Änderungszeit jeder Ergebnisdatei und liefert neue/geänderte."""
+
+    def __init__(self, dirs: list[Path] | None = None):
+        self.dirs = dirs if dirs is not None else acc_results_dirs()
+        self.seen: dict[Path, float] = {}
+        self.started = time.time()
+
+    def changed(self) -> list[tuple[Path, float]]:
+        out = []
+        for d in self.dirs:
+            try:
+                files = list(d.glob("*.json"))
+            except OSError:
+                continue
+            for f in files:
+                try:
+                    m = f.stat().st_mtime
+                except OSError:
+                    continue
+                # Dateien von vor dem Start nicht anfassen; gerade geschriebene kurz reifen lassen
+                if m < self.started - 6 * 3600 or time.time() - m < 3 or self.seen.get(f) == m:
+                    continue
+                out.append((f, m))
+        return out
+
+    def done(self, f: Path, m: float) -> None:
+        self.seen[f] = m
+
+
 class Sender(threading.Thread):
     def __init__(self, store: Store, server: str, token: str):
         super().__init__(daemon=True)
         self.store, self.server, self.token = store, server.rstrip("/"), token
         self.wake = threading.Event()
         self.online = None
+        self.acc = AccResults()
 
     def run(self) -> None:
         while True:
             self.wake.wait(10)
             self.wake.clear()
             self.send_now()
+            try:
+                self.send_acc_results()
+            except Exception:
+                log.exception("ACC-Ergebnisabgleich fehlgeschlagen")
+
+    def _post(self, path: str, payload) -> dict:
+        req = urllib.request.Request(
+            self.server + path, data=json.dumps(payload).encode(), method="POST",
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.token}"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())
+
+    def send_acc_results(self) -> None:
+        """Erst nachdem die eigenen Runden draußen sind, sonst findet der Server nichts."""
+        if self.store.pending():
+            return
+        for f, m in self.acc.changed():
+            try:
+                laps = acc_result_laps(f.read_bytes())
+            except (OSError, ValueError, KeyError, TypeError) as e:
+                log.warning("ACC-Ergebnis %s nicht lesbar: %s", f.name, e)
+                self.acc.done(f, m)
+                continue
+            if laps:
+                when = datetime.fromtimestamp(m, timezone.utc).isoformat(timespec="seconds")
+                try:
+                    r = self._post("/api/acc_results", {"file_time": when, "laps": laps})
+                except (urllib.error.URLError, OSError):
+                    return                    # später erneut
+                if r.get("updated"):
+                    log.info("ACC-Ergebnis %s: %d Runde(n) korrigiert (%d zugeordnet)",
+                             f.name, r["updated"], r.get("matched", 0))
+            self.acc.done(f, m)
 
     def send_now(self) -> None:
         laps = self.store.pending()

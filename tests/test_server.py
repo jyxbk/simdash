@@ -250,3 +250,27 @@ def test_setup_changes_crud(client):
     assert len(rows) == 1 and rows[0]["after"] == "4"
     assert client.delete(f"/api/setup_changes/{rows[0]['id']}", headers=AUTH).status_code == 200
     assert client.get("/api/setup_changes", params=q).json() == []
+
+
+def test_acc_results_fix_validity(client):
+    """ACC 14.11.: Runde 12 war live gültig, ACC verwirft sie in der Ergebnisdatei (flags 1)."""
+    laps = [lap("accaaaa1", 91382, game="acc", recorded_at="2026-11-14T13:44:52+00:00"),
+            lap("accaaaa2", 91465, game="acc", recorded_at="2026-11-14T13:46:24+00:00"),
+            lap("accaaaa3", 95310, game="acc", valid=False, outlap=True, recorded_at="2026-11-14T13:19:30+00:00"),
+            lap("accaaaa4", 91382, game="acc", recorded_at="2026-11-01T13:44:52+00:00")]  # alte Session
+    client.post("/api/laps", json=laps, headers=AUTH)
+    body = {"file_time": "2026-11-14T13:46:30+00:00",
+            "laps": [{"lap_time_ms": 91382, "flags": 1}, {"lap_time_ms": 91465, "flags": 1024}]}
+    assert client.post("/api/acc_results", json=body).status_code == 401
+    r = client.post("/api/acc_results", json=body, headers=AUTH).json()
+    assert r == {"matched": 2, "updated": 1}
+    got = {l["uid"]: l for l in client.get("/api/laps?limit=50").json()}
+    assert got["accaaaa1"]["valid"] is False
+    assert got["accaaaa2"]["valid"] is True
+    assert got["accaaaa4"]["valid"] is True                 # andere Session unberührt
+    # Q2 Runde 3: ACC sagt gültig + Outlap (1028) -> gültig, Outlap bleibt
+    r = client.post("/api/acc_results", headers=AUTH, json={
+        "file_time": "2026-11-14T13:19:35+00:00", "laps": [{"lap_time_ms": 95310, "flags": 1028}]}).json()
+    assert r["updated"] == 1
+    got = {l["uid"]: l for l in client.get("/api/laps?limit=50").json()}
+    assert got["accaaaa3"]["valid"] is True and got["accaaaa3"]["outlap"] is True

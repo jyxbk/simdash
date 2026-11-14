@@ -4,6 +4,19 @@ Server/UI and collector have separate version numbers. The collector version is
 in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 `server/static/index.html`.
 
+## Collector 0.10.1 / server — 2026-11-14
+- **ACC result-file check:** after an offline session the collector reads ACC's
+  own `Results/*.json` (player car = Steam ID) and sends it to the new
+  `POST /api/acc_results`. The server matches laps by exact time within the
+  session window and fixes validity (flag 1), outlap (4) and inlap (8). ACC
+  invalidates some laps only at the line while shared memory still says valid.
+- **Reset to pits mid-lap:** the clock jumps to ~0 on track while the lap
+  counter stays; the partial lap is now discarded, so the next lap no longer
+  inherits its invalid flag and trace.
+- **ACC online race start:** the lap clock runs from the grid/formation, so
+  lap 1 reported e.g. 7:30. Such laps (time > 1.4 × the extrapolated driven
+  time) are marked as outlap with a note.
+
 ## UI 0.19.0 — 2026-11-11
 - **Driving technique** (brake, steering and throttle together), per corner
   against your fastest run there, following the usual coaching rules: brake
