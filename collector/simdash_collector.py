@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "0.10.1"
+VERSION = "0.10.2"
 POLL_HZ = 50
 
 log = logging.getLogger("simdash")
@@ -810,7 +810,9 @@ class LapDetector:
                                 "approx": approx, "deadline": now + self.SETTLE_S}
             self._new_lap_state(s)
         elif (prev.current_ms >= self.MIN_LAP_MS and s.current_ms < prev.current_ms - 5000
-              and prev.npos > 0.9 and s.npos < 0.1 and not self.pending):
+              and prev.npos > 0.9 and s.npos < 0.1 and not self.pending
+              # Rennen, Zähler noch 0 = Formationsrunde: Linie überquert, aber keine Runde
+              and not (s.session_type == "race" and prev.lap_count == 0)):
             lap = self._make_lap(self.lap_max_current, True, prev,
                                  prev.lap_count + 1, prev.in_pit_lane)
             self.pending = {"kind": "cross", "lap": lap, "count": prev.lap_count,

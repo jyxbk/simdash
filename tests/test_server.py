@@ -254,9 +254,9 @@ def test_setup_changes_crud(client):
 
 def test_acc_results_fix_validity(client):
     """ACC 14.11.: Runde 12 war live gültig, ACC verwirft sie in der Ergebnisdatei (flags 1)."""
-    laps = [lap("accaaaa1", 91382, game="acc", recorded_at="2026-11-14T13:44:52+00:00"),
-            lap("accaaaa2", 91465, game="acc", recorded_at="2026-11-14T13:46:24+00:00"),
-            lap("accaaaa3", 95310, game="acc", valid=False, outlap=True, recorded_at="2026-11-14T13:19:30+00:00"),
+    laps = [lap("accaaaa1", 91382, game="acc", session_uid="r1", recorded_at="2026-11-14T13:44:52+00:00"),
+            lap("accaaaa2", 91465, game="acc", session_uid="r1", recorded_at="2026-11-14T13:46:24+00:00"),
+            lap("accaaaa3", 95310, game="acc", session_uid="q2", valid=False, outlap=True, recorded_at="2026-11-14T13:19:30+00:00"),
             lap("accaaaa4", 91382, game="acc", recorded_at="2026-11-01T13:44:52+00:00")]  # alte Session
     client.post("/api/laps", json=laps, headers=AUTH)
     body = {"file_time": "2026-11-14T13:46:30+00:00",
@@ -274,3 +274,20 @@ def test_acc_results_fix_validity(client):
     assert r["updated"] == 1
     got = {l["uid"]: l for l in client.get("/api/laps?limit=50").json()}
     assert got["accaaaa3"]["valid"] is True and got["accaaaa3"]["outlap"] is True
+
+
+def test_acc_results_same_time_in_other_session(client):
+    """Rennen 2 (14.11.): 1:30.270 gab es auch in Rennen 1 kurz davor -> nach Session zuordnen."""
+    r1 = [lap(f"r1lap{i:04d}", ms, game="acc", session_uid="r1", lap_number=i,
+              recorded_at=f"2026-11-14T13:{30 + i}:00+00:00") for i, ms in enumerate([91000, 90270, 91132], 1)]
+    r2 = [lap(f"r2lap{i:04d}", ms, game="acc", session_uid="r2", lap_number=i,
+              recorded_at=f"2026-11-14T14:{i:02d}:00+00:00") for i, ms in enumerate([91132, 90325, 90270], 1)]
+    client.post("/api/laps", json=r1 + r2, headers=AUTH)
+    body = {"file_time": "2026-11-14T14:04:00+00:00",
+            "laps": [{"lap_time_ms": 91132, "flags": 0}, {"lap_time_ms": 90325, "flags": 0},
+                     {"lap_time_ms": 90270, "flags": 1025}]}
+    r = client.post("/api/acc_results", json=body, headers=AUTH).json()
+    assert r == {"matched": 3, "updated": 1}
+    got = {l["uid"]: l for l in client.get("/api/laps?limit=50").json()}
+    assert got["r2lap0003"]["valid"] is False
+    assert got["r1lap0002"]["valid"] is True

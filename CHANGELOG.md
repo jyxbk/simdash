@@ -4,6 +4,12 @@ Server/UI and collector have separate version numbers. The collector version is
 in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 `server/static/index.html`.
 
+## Collector 0.10.2 / server — 2026-11-14
+- Race formation lap crossing the line (counter still 0) no longer creates an
+  estimated lap.
+- `/api/acc_results` matches per session (the one with most equal lap times),
+  so a lap time that also occurred in the previous race is no longer skipped.
+
 ## Collector 0.10.1 / server — 2026-11-14
 - **ACC result-file check:** after an offline session the collector reads ACC's
   own `Results/*.json` (player car = Steam ID) and sends it to the new

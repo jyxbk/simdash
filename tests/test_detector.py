@@ -494,3 +494,17 @@ def test_acc_result_laps_player_only(tmp_path):
     assert [p for p, _ in ch] == [f]
     w.done(*ch[0])
     assert w.changed() == []
+
+
+def test_formation_lap_crossing_is_no_lap():
+    """ACC-Rennen 14.11.: Formationsrunde über die Linie (Uhr -> 0, Zähler bleibt 0) ergab 1:23.492 geschätzt."""
+    d = Drive()
+    d.kw = {"game": "acc", "session_type": "race"}
+    d.feed(current_ms=0, npos=0.85)
+    for i in range(84):
+        d.feed(current_ms=i * 1000 + 500, npos=min(0.85 + i * 0.0018, 0.999))
+    d.feed(current_ms=20, npos=0.001)          # Startlinie, Zähler bleibt 0
+    d.lap(91392)
+    d.settle()
+    assert [l.lap_time_ms for l in d.laps] == [91392]
+    assert d.laps[0].lap_number == 1 and not d.laps[0].estimated

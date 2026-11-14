@@ -899,7 +899,8 @@ def acc_results(body: AccResultsIn) -> dict:
     """Gleicht ACC-Runden mit ACCs eigener Ergebnisdatei ab.
 
     ACC verwirft manche Runden erst an der Linie (Shared Memory meldet bis zuletzt gültig).
-    Zuordnung über die exakte Rundenzeit innerhalb des Session-Zeitraums.
+    Zuordnung: Session mit den meisten gleichen Rundenzeiten im Zeitfenster, darin je Zeit
+    die nächste noch freie Runde (in Fahrreihenfolge).
     flags: Bit 1 = ungültig, 4 = Outlap, 8 = Inlap. Outlap/Inlap werden nur gesetzt, nie gelöscht.
     """
     if not body.laps:
@@ -911,21 +912,31 @@ def acc_results(body: AccResultsIn) -> dict:
     matched = updated = 0
     with db() as con:
         rows = con.execute(
-            "SELECT id, lap_time_ms, valid, outlap, inlap, recorded_at FROM laps WHERE game='acc'"
+            "SELECT id, session_uid, lap_time_ms, valid, outlap, inlap, recorded_at FROM laps "
+            "WHERE game='acc' ORDER BY recorded_at"
         ).fetchall()
-        cand = {}
+        sessions: dict[str, list] = {}
         for r in rows:
             try:
                 t = datetime.fromisoformat(r["recorded_at"])
             except ValueError:
                 continue
             if start <= t <= end:
-                cand.setdefault(r["lap_time_ms"], []).append(r)
+                sessions.setdefault(r["session_uid"] or "", []).append(r)
+        # Session mit den meisten passenden Zeiten = die Session dieser Datei
+        want = [l.lap_time_ms for l in body.laps]
+        def score(rs):
+            times = [r["lap_time_ms"] for r in rs]
+            return sum(1 for w in set(want) if w in times)
+        best = max(sessions.values(), key=score, default=[])
+        if score(best) < max(1, min(3, len(set(want)))):
+            return {"matched": 0, "updated": 0}
+        free = list(best)
         for lap in body.laps:
-            hits = cand.get(lap.lap_time_ms) or []
-            if len(hits) != 1:
-                continue                     # keine oder mehrdeutige Zuordnung -> nichts ändern
-            r = hits[0]
+            r = next((x for x in free if x["lap_time_ms"] == lap.lap_time_ms), None)
+            if r is None:
+                continue
+            free.remove(r)
             matched += 1
             valid = 0 if lap.flags & 1 else 1
             outlap = 1 if lap.flags & 4 else r["outlap"]
