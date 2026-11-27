@@ -12,6 +12,9 @@ trace: time, speed, pedals, gear, steering and position every ~5 m. The web UI
 shows your personal bests, compares laps, coaches you corner by corner and
 mirrors the car live on a second screen or your phone.
 
+The web UI is available in **English and German**. It follows your browser
+language; switch it with **DE | EN** at the bottom of the menu.
+
 **What runs where**
 
 | Part | Runs on | What it does |
@@ -68,7 +71,7 @@ mirrors the car live on a second screen or your phone.
 
 ## Screenshots
 
-All screenshots use demo driver names.
+All screenshots show the English UI with demo driver names.
 
 | Coach | Live |
 |---|---|

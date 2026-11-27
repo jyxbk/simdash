@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 const srState = { data: null, at: 0 };
 const KIND_DE = { invalid: "ungültige Runde", off: "Abflug / Kontrollverlust", crash: "Einschlag", iracing: "iRacing-Incident" };
-const de2 = (n, d = 2) => Number(n).toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
+const de2 = (n, d = 2) => Number(n).toLocaleString(LOCALE, { minimumFractionDigits: d, maximumFractionDigits: d });
 const initials = (n) => (n || "?").split(/\s+/).map((x) => x[0]).join("").slice(0, 2).toUpperCase();
 
 /** Fahrer, dessen Rating gezeigt wird: der gefilterte, sonst „ich“. */
@@ -104,7 +104,7 @@ function renderSafety() {
   const tiles = h("section", { class: "tiles sr-tiles" },
     srTile("Kurven je Zwischenfall-Punkt", d.recent.cpi ? de2(d.recent.cpi, 1) : "∞", `letzte ${d.recent.sessions} Sessions · höher ist besser`),
     srTile("Zwischenfall-Punkte", String(d.recent.points), kinds),
-    srTile("Gefahrene Kurven", d.recent.corners.toLocaleString("de-DE"), `in ${d.recent.sessions} Sessions`),
+    srTile("Gefahrene Kurven", d.recent.corners.toLocaleString(LOCALE), `in ${d.recent.sessions} Sessions`),
     srTile("Sessions gewertet", String(d.sessions), `davon ${inClass} in Klasse ${d.klass}`));
 
   const trend = h("section", { class: "detail-card" }, h("div", { class: "detail-title" }, "Verlauf je Session"),

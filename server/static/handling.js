@@ -50,7 +50,7 @@ function renderHandling() {
     return;
   }
   const lbl = (no) => cornerShort(d.corners.find((c) => c.no === no) || { no });
-  const secTxt = (ms) => `${(ms / 1000).toFixed(2).replace(".", ",")} s`;
+  const secTxt = (ms) => `${(ms / 1000).toFixed(2).replace(".", DEC)} s`;
   const findings = d.findings.length
     ? h("div", { class: "coach-cards" }, d.findings.map((f) => h("article", { class: `coach-card hd-card ${f.kind}` },
         h("div", { class: "cc-head" }, h("b", {}, f.title),

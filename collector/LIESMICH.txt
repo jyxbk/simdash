@@ -1,8 +1,9 @@
 SimDash-Collector
 =================
 
-Liest die Rundenzeiten aus AC EVO, iRacing, ACC, AC Rally (experimentell) und
-Assetto Corsa und schickt sie an deinen SimDash-Server (Adresse in simdash.ini).
+Liest die Rundenzeiten aus AC EVO, ACC, Assetto Corsa, iRacing, Le Mans Ultimate,
+Automobilista 2 und AC Rally (experimentell) und schickt sie an deinen
+SimDash-Server (Adresse in simdash.ini). English: see README.txt.
 
 Einrichtung (einmalig)
 1. Python installieren (falls noch nicht da). In PowerShell:

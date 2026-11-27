@@ -7,7 +7,7 @@ const setupState = { key: null, changes: [], stats: null, statsKey: null };
 const PARTS = ["Reifendruck", "Sturz", "Spur", "Stabilisator vorne", "Stabilisator hinten", "Federn", "Dämpfer", "Bodenfreiheit",
   "Flügel / Aero", "Differenzial", "Bremsbalance", "Bremsdruck", "TC", "ABS", "Übersetzung", "Sonstiges"];
 const WHEELS = ["Vorne links", "Vorne rechts", "Hinten links", "Hinten rechts"];
-const nf = (v, d = 1) => v == null ? "–" : Number(v).toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
+const nf = (v, d = 1) => v == null ? "–" : Number(v).toLocaleString(LOCALE, { minimumFractionDigits: d, maximumFractionDigits: d });
 
 function curCombo() {
   return (state.bests || []).find((b) => comboKey(b) === state.selected) || null;
@@ -69,7 +69,7 @@ function abTable(a, b) {
     return h("tr", {}, h("td", {}, label), h("td", { class: "n" }, f(va)), h("td", { class: "n" }, f(vb)),
       h("td", { class: `n d ${d === 0 ? "" : better ? "better" : "worse"}` }, d === 0 ? "±0" : `${better ? "▲" : "▼"} ${fd(Math.abs(d))}`));
   };
-  const sec = (v) => `${(v / 1000).toFixed(3).replace(".", ",")} s`;
+  const sec = (v) => `${(v / 1000).toFixed(3).replace(".", DEC)} s`;
   const md = b.median - a.median;
   const verdict = md < -100 && b.inv <= a.inv + 10 ? ["good", "Hat sich gelohnt: im Mittel schneller, nicht unsauberer."]
     : md > 100 ? ["crit", "Eher schlechter: im Mittel langsamer. Zurückstellen oder andersherum probieren."]

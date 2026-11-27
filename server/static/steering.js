@@ -50,7 +50,7 @@ function renderSteering() {
       const r = R(c), b = B(c);
       const tip = (c.tips || [])[0];
       return h("tr", { class: steerState.sel === c.no ? "sel" : "", style: "cursor:pointer", onclick: () => { steerState.sel = c.no; renderSteering(); } },
-        h("td", {}, h("b", {}, cornerLabel(c)), h("div", { class: "muted-sm" }, c.gain_ms >= 30 ? `−${(c.gain_ms / 1000).toFixed(2).replace(".", ",")} s` : "")),
+        h("td", {}, h("b", {}, cornerLabel(c)), h("div", { class: "muted-sm" }, c.gain_ms >= 30 ? `−${(c.gain_ms / 1000).toFixed(2).replace(".", DEC)} s` : "")),
         h("td", {}, pair(r.brake_build_m, b.brake_build_m, " m")), h("td", {}, pair(r.brake_at_turnin, b.brake_at_turnin, " %")),
         h("td", {}, pair(r.trail_m, b.trail_m, " m")),
         h("td", {}, pair(r.turn_in_m, b.turn_in_m, " m")), h("td", {}, pair(r.corrections, b.corrections)),

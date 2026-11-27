@@ -1077,6 +1077,11 @@ body { background: var(--page); padding: 0; font-family: -apple-system, BlinkMac
 .app.collapsed .nav-group { margin-top: 4px; border-top: 1px solid var(--border); padding-top: 6px; }
 .app.collapsed .nav-group:first-child { border-top: 0; }
 .app.collapsed .driver-card { justify-content: center; padding: 8px 0; }
+.lang-switch { display: flex; gap: 4px; margin-top: 8px; }
+.lang-switch button { flex: 1; padding: 4px 0; font: inherit; font-size: 12px; font-weight: 600; letter-spacing: .04em; color: var(--text-muted); background: transparent; border: 1px solid var(--border); border-radius: 7px; cursor: pointer; }
+.lang-switch button:hover { color: var(--text-primary); border-color: var(--border-strong); }
+.lang-switch button[aria-pressed="true"] { color: var(--text-primary); background: var(--surface-2); border-color: var(--border-strong); }
+.app.collapsed .lang-switch { flex-direction: column; }
 .app.collapsed .nav-item:hover::after { content: attr(data-label); position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
   background: var(--surface-3); color: var(--text-primary); padding: 5px 9px; border-radius: 7px; font-size: 13px; box-shadow: var(--shadow); white-space: nowrap; z-index: 40; }
 .scrim { display: none; }

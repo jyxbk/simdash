@@ -76,7 +76,7 @@ document.addEventListener("visibilitychange", () => {
 
 /* --- Zeichnen ------------------------------------------------------------------ */
 function cpSec(ms, d = 3) {
-  const txt = (Math.abs(ms) / 1000).toFixed(d).replace(".", ",");
+  const txt = (Math.abs(ms) / 1000).toFixed(d).replace(".", DEC);
   return `${/^[0,]+$/.test(txt) ? "±" : ms < 0 ? "−" : "+"}${txt}`;
 }
 
@@ -105,7 +105,7 @@ function renderCockpit() {
   if (d && d.lap_invalid) flags.push(h("span", { class: "cp-flag bad" }, "✕ UNGÜLTIG"));
   const t = (d && d.tele) || {};
   const fl = t.fuel_laps > 0 && t.fuel_lap > 0.3 ? t.fuel_laps : null;
-  if (fl != null) flags.push(h("span", { class: `cp-flag ${fl < 2 ? "warn" : ""}` }, `⛽ ${fl.toFixed(1).replace(".", ",")} R`));
+  if (fl != null) flags.push(h("span", { class: `cp-flag ${fl < 2 ? "warn" : ""}` }, `⛽ ${fl.toFixed(1).replace(".", DEC)} R`));
   $("#cp-flags").replaceChildren(...flags);
 
   // Delta – das Wichtigste, riesig und farbig
@@ -156,7 +156,7 @@ function renderCockpit() {
   const line = $("#cp-coach");
   if (r && r.ok) {
     const worst = r.corners.filter((c) => c.loss_ms >= 30).sort((a, b) => b.loss_ms - a.loss_ms)[0];
-    const head = `R${r.lap.lap_number ?? "?"} ${cpSec(r.delta_ms, 2)}`;
+    const head = `${LAP_SHORT}${r.lap.lap_number ?? "?"} ${cpSec(r.delta_ms, 2)}`;
     line.replaceChildren(h("b", {}, head), worst
       ? h("span", {}, ` · ${cornerShort(worst)} ${cpSec(worst.loss_ms, 2)}${worst.tips && worst.tips[0] ? ": " + worst.tips[0].text : ""}`)
       : h("span", {}, " · in keiner Kurve langsamer"));

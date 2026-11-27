@@ -4,7 +4,7 @@
 
 const median = (xs) => { const a = [...xs].sort((p, q) => p - q), m = a.length >> 1; return a.length ? (a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2) : null; };
 const signS = (ms, d = 3) => `${ms < 0 ? "−" : "+"}${(Math.abs(ms) / 1000).toFixed(d)} s`;
-const shortDate = (iso) => new Date(iso).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+const shortDate = (iso) => new Date(iso).toLocaleDateString(LOCALE, { day: "2-digit", month: "2-digit" });
 
 /** Kennzahlen einer Session: beste Runde, Median der sauberen Runden (≤ 107 %), Streuung. */
 function sessionStats(ls) {
@@ -89,7 +89,7 @@ function renderProgress() {
   box.replaceChildren(head, h("div", { class: "legend" }, key("var(--series-1)", "Bestzeit der Session"), key("var(--series-2)", "Median (saubere Runden)"), h("span", { class: "key muted" }, "oben = schneller")), chartBox);
   miniChart(chartBox, {
     labels: ses.map((x, i) => (ses.some((y, j) => j !== i && shortDate(y.st.at) === shortDate(x.st.at))
-      ? `${shortDate(x.st.at)} ${new Date(x.st.at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}` : shortDate(x.st.at))),
+      ? `${shortDate(x.st.at)} ${new Date(x.st.at).toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" })}` : shortDate(x.st.at))),
     yFmt: (v) => fmt(Math.round(v)).replace(/\.\d+$/, (m) => m.slice(0, 2)),
     series: [
       { values: ses.map((x) => x.st.median), color: "var(--series-2)", title: (i) => `${shortDate(ses[i].st.at)} · Median ${fmt(Math.round(ses[i].st.median))} · ${ses[i].st.clean} saubere Runden` },
@@ -132,8 +132,8 @@ function renderCornerHistory() {
     h("div", { class: "ch-charts" },
       h("div", {}, h("div", { class: "mini-title" }, "Zeit in der Kurve (oben = schneller)"), tBox),
       bBox ? h("div", {}, h("div", { class: "mini-title" }, "Bremspunkt, m vorm Scheitel (oben = später)"), bBox) : null));
-  const labels = hist.map((x) => `R${x.lap_number ?? "?"}`);
-  const title = (i) => `R${hist[i].lap_number ?? "?"} · ${shortDate(hist[i].recorded_at)} · ${(hist[i].ms / 1000).toFixed(3)} s · Scheitel ${hist[i].v_min != null ? Math.round(hist[i].v_min) : "–"} km/h${hist[i].brake_m != null ? ` · Bremse ${hist[i].brake_m} m` : ""}${hist[i].clean ? "" : " · nicht sauber"}`;
+  const labels = hist.map((x) => `${LAP_SHORT}${x.lap_number ?? "?"}`);
+  const title = (i) => `${LAP_SHORT}${hist[i].lap_number ?? "?"} · ${shortDate(hist[i].recorded_at)} · ${(hist[i].ms / 1000).toFixed(3)} s · Scheitel ${hist[i].v_min != null ? Math.round(hist[i].v_min) : "–"} km/h${hist[i].brake_m != null ? ` · Bremse ${hist[i].brake_m} m` : ""}${hist[i].clean ? "" : " · nicht sauber"}`;
   miniChart(tBox, { labels, yFmt: (v) => (v / 1000).toFixed(1), height: 150, refLine: { value: best, label: "beste Fahrt" },
     series: [{ values: hist.map((x) => x.ms), color: "var(--series-1)", dim: hist.map((x) => !x.clean), skip: hist.map((x) => !x.clean), title }] });
   if (bBox) miniChart(bBox, { labels, yFmt: (v) => Math.round(v), height: 150, refLine: c.best_metrics.brake_m != null ? { value: c.best_metrics.brake_m, label: "beste Fahrt" } : null,

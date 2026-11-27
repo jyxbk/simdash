@@ -1,11 +1,15 @@
 # User guide
 
-The web UI is in German. This guide gives the German label in quotes the first
-time it appears.
+The web UI is available in English and German. It starts in your browser's
+language; **DE | EN** at the bottom of the menu switches it (saved per device,
+`?lang=en` in the address works too). This guide uses the English labels and
+gives the German label in quotes the first time it appears.
 
-There are three tabs: **Übersicht** (overview), **Analyse** (analysis and coach)
-and **Live**. The filter bar (game, track, car, driver) applies to the overview
-and the analysis.
+The menu on the left has the groups **Drive** (overview, live, cockpit),
+**Analyse** (sessions, personal bests, coach & setup, lap comparison),
+**Driver** (safety rating, progress) and **System** (collector & games). On a
+phone it opens with ☰. The filter bar (game, track, car, driver) applies to the
+overview and the analysis pages.
 
 ## Overview ("Übersicht")
 

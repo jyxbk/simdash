@@ -4,6 +4,15 @@ Server/UI and collector have separate version numbers. The collector version is
 in `collector/simdash_collector.py` (`VERSION`), the UI version is the `?v=` in
 `server/static/index.html`.
 
+## UI 0.20.0 — 2026-11-27
+- **English UI.** Language switch **DE | EN** at the bottom of the menu; the
+  default follows the browser language, `?lang=en` / `?lang=de` sets it.
+  Translation happens in the browser (`i18n.js` + dictionary `i18n-en.js`), so
+  coach tips, setup diagnosis and server messages are translated too. Numbers
+  and dates use the matching locale, voice callouts speak English with an
+  English voice, corners are abbreviated T1, T2 … in English.
+- Collector package: English `README.txt` next to `LIESMICH.txt`.
+
 ## Collector 0.10.2 / server — 2026-11-14
 - Race formation lap crossing the line (counter still 0) no longer creates an
   estimated lap.

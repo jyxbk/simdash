@@ -17,7 +17,7 @@ async function fetchInsights(id, refId) {
 }
 
 function insSecs(ms, digits = 2) {
-  const txt = (Math.abs(ms) / 1000).toFixed(digits).replace(".", ",");
+  const txt = (Math.abs(ms) / 1000).toFixed(digits).replace(".", DEC);
   return `${/^[0,]+$/.test(txt) ? "±" : ms < 0 ? "−" : "+"}${txt} s`;
 }
 
@@ -67,7 +67,7 @@ function insCard(c, rank) {
   ].filter(Boolean);
   const off = c.line && c.line.apex_offset_m;
   const lineTxt = off != null && Math.abs(off) >= 0.5
-    ? `Linie: am Scheitel ${Math.abs(off).toFixed(1).replace(".", ",")} m weiter ${off > 0 ? "innen" : "außen"} als die Referenz` : null;
+    ? `Linie: am Scheitel ${Math.abs(off).toFixed(1).replace(".", DEC)} m weiter ${off > 0 ? "innen" : "außen"} als die Referenz` : null;
   const lineBox = h("div", { class: "ins-linebox" });
   const btn = c.line ? h("button", { class: "ghost", type: "button", "aria-expanded": "false" }, "Linie zeigen") : null;
   if (btn) btn.addEventListener("click", () => {

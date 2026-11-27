@@ -118,17 +118,23 @@ function ghostOnLive(d, prev) {
   if (voice.fuel && fl != null && driving) {
     for (const lim of [3, 1.5]) {
       const k = `${d.session_uid}|${lim}`;
-      if (fl < lim && !ghost.fuelSaid.has(k)) { ghost.fuelSaid.add(k); speak(`Sprit für noch ${Math.max(1, Math.floor(fl))} ${Math.floor(fl) === 1 ? "Runde" : "Runden"}`, "info"); }
+      if (fl < lim && !ghost.fuelSaid.has(k)) { ghost.fuelSaid.add(k); { const n = Math.max(1, Math.floor(fl)); speak(LANG === "en" ? `Fuel for ${n} more ${n === 1 ? "lap" : "laps"}` : `Sprit für noch ${n} ${n === 1 ? "Runde" : "Runden"}`, "info"); } }
     }
   }
 }
 
 function sayTime(ms) {
   const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000), z = Math.floor((ms % 1000) / 100);
-  return m ? `${m} ${String(s).padStart(2, "0")} Komma ${z}` : `${s} Komma ${z}`;
+  const k = LANG === "en" ? "point" : "Komma";
+  return m ? `${m} ${String(s).padStart(2, "0")} ${k} ${z}` : `${s} ${k} ${z}`;
 }
 function sayDelta(dms) {
   const a = Math.abs(dms) / 1000;
+  if (LANG === "en") {
+    const t = Math.round(a * 10) || 1;
+    const v = a < 1 ? `${t} ${t === 1 ? "tenth" : "tenths"}` : `${a.toFixed(1)} seconds`;
+    return `${v} ${dms <= 0 ? "faster" : "slower"}`;
+  }
   const v = a < 1 ? `${Math.round(a * 10) || 1} Zehntel` : `${a.toFixed(1).replace(".", " Komma ")} Sekunden`;
   return `${v} ${dms <= 0 ? "schneller" : "langsamer"}`;
 }
@@ -137,7 +143,9 @@ function sayDelta(dms) {
 let deVoice = null;
 function pickVoice() {
   const vs = window.speechSynthesis ? speechSynthesis.getVoices() : [];
-  deVoice = vs.find((v) => /^de(-|_)DE/i.test(v.lang) && /google|anna|helena|katja|markus|petra|yannick/i.test(v.name)) || vs.find((v) => /^de/i.test(v.lang)) || null;
+  deVoice = LANG === "en"
+    ? vs.find((v) => v.lang.replace("_", "-") === LOCALE) || vs.find((v) => /^en/i.test(v.lang)) || null
+    : vs.find((v) => /^de(-|_)DE/i.test(v.lang) && /google|anna|helena|katja|markus|petra|yannick/i.test(v.name)) || vs.find((v) => /^de/i.test(v.lang)) || null;
 }
 if (window.speechSynthesis) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
 
@@ -145,8 +153,10 @@ if (window.speechSynthesis) { pickVoice(); speechSynthesis.onvoiceschanged = pic
 function speak(text, kind) {
   if (!window.speechSynthesis) return;
   if (kind === "coach" && speechSynthesis.speaking) speechSynthesis.cancel();
+  // Satzteile einzeln übersetzen („Kurve 9. 10 m später bremsen“, „Ungültig. 1 20 Komma 5“)
+  if (LANG === "en") text = text.split(/(?<=\.) /).map((x) => { const e = x.endsWith("."); const t = tr(e ? x.slice(0, -1) : x); return e ? `${t}.` : t; }).join(" ");
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = "de-DE";
+  u.lang = LANG === "en" ? LOCALE : "de-DE";
   if (deVoice) u.voice = deVoice;
   u.rate = 1.15;
   speechSynthesis.speak(u);
@@ -160,7 +170,7 @@ function renderGhost() {
   el.classList.toggle("on", !!c);
   if (!c) { el.replaceChildren(); return; }
   el.replaceChildren(h("span", { class: "g-name" }, c.phrase.name), h("span", { class: "g-txt" }, c.phrase.show),
-    h("span", { class: "g-gain" }, `−${(c.gain_ms / 1000).toFixed(2).replace(".", ",")} s`));
+    h("span", { class: "g-gain" }, `−${(c.gain_ms / 1000).toFixed(2).replace(".", DEC)} s`));
 }
 
 function renderVoiceBtn() {

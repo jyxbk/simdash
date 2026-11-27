@@ -55,7 +55,7 @@ function fmt(ms) {
 const fmtDelta = (ms) => `${ms < 0 ? "−" : "+"}${(Math.abs(ms) / 1000).toFixed(3)}`;
 
 function fmtDate(iso) {
-  return new Date(iso).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleString(LOCALE, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
 function ago(iso) {
@@ -75,7 +75,7 @@ function fmtDuration(ms) {
 
 /** Kurvenname (vom Nutzer vergeben) oder „Kurve N“. */
 const cornerLabel = (c) => (c && c.name ? c.name : `Kurve ${c.no}`);
-const cornerShort = (c) => (c && c.name ? c.name : `K${c.no}`);
+const cornerShort = (c) => (c && c.name ? c.name : `${LANG === "en" ? "T" : "K"}${c.no}`);
 
 /** ✎-Knopf: Kurve umbenennen (Name gilt für die Strecke, egal welches Auto). */
 function renameBtn(combo, c) {
@@ -251,7 +251,7 @@ function renderTiles(st) {
   const tile = (label, value, sub) => h("div", { class: "tile" },
     h("div", { class: "label" }, label), h("div", { class: "value" }, value), sub ? h("div", { class: "sub" }, sub) : null);
   $("#tiles").replaceChildren(
-    tile("Runden", st.laps.toLocaleString("de-DE"), `${st.valid_laps ?? 0} gültig`),
+    tile("Runden", st.laps.toLocaleString(LOCALE), `${st.valid_laps ?? 0} gültig`),
     tile("Strecken", st.tracks, `${st.sessions} Sessions`),
     tile("Autos", st.cars, `in ${st.games} ${st.games === 1 ? "Spiel" : "Spielen"}`),
     tile("Fahrzeit", fmtDuration(st.drive_ms), "auf der Strecke"),
@@ -634,7 +634,7 @@ function openDriverDialog(laps, title) {
     h("button", { type: "button", class: "chip", "aria-pressed": String(n === cur), onclick: () => { $("#dd-name").value = n; for (const b of $("#dd-quick").children) b.setAttribute("aria-pressed", String(b.textContent === n || b.textContent === `Ich (${n})`)); } }, n === state.me ? `Ich (${n})` : n)));
   $("#dd-laps").replaceChildren(...laps.map((l) => h("label", { class: "dd-lap" },
     h("input", { type: "checkbox", value: l.id, checked: true }),
-    h("span", { class: "num" }, `R${l.lap_number ?? "?"}`), h("span", { class: "num" }, fmt(l.lap_time_ms)),
+    h("span", { class: "num" }, `${LAP_SHORT}${l.lap_number ?? "?"}`), h("span", { class: "num" }, fmt(l.lap_time_ms)),
     h("span", { class: "muted" }, l.driver || "–"))));
   // Name aus dem Spiel (z. B. Nickname): auf Wunsch immer diesem Fahrer zuordnen
   $("#dd-remember").checked = false;
@@ -685,7 +685,7 @@ const analysis = { c: null, traced: [], charts: [] };
 
 function lapLabel(l, pbId) {
   const flags = [l.id === pbId ? "★ PB" : "", l.valid === false ? "✕" : "", l.estimated ? "≈" : ""].filter(Boolean).join(" ");
-  return `R${l.lap_number ?? "?"} · ${fmt(l.lap_time_ms)} · ${fmtDate(l.recorded_at)}${flags ? " · " + flags : ""}`;
+  return `${LAP_SHORT}${l.lap_number ?? "?"} · ${fmt(l.lap_time_ms)} · ${fmtDate(l.recorded_at)}${flags ? " · " + flags : ""}`;
 }
 
 /** Zeit je Mini-Sektor (ms) aus dem Verlauf; null, wenn der Abschnitt nicht abgedeckt ist. */

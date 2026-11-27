@@ -335,7 +335,7 @@ function renderInputs(d) {
   const rpmBar = $("#lv-rpm");
   rpmBar.parentElement.hidden = d.rpm_pct == null;
   if (d.rpm_pct != null) { rpmBar.style.width = `${Math.round(d.rpm_pct * 100)}%`; rpmBar.classList.toggle("hot", d.rpm_pct > 0.94); }
-  if (d.rpm > 0) live.rpmTxt = `${d.rpm.toLocaleString("de-DE")} U/min`;
+  if (d.rpm > 0) live.rpmTxt = `${d.rpm.toLocaleString(LOCALE)} U/min`;
   $("#lv-rpm-txt").textContent = live.rpmTxt || "";
   for (const [k, id] of [["throttle", "thr"], ["brake", "brk"]]) {
     const v = d[k];
@@ -472,7 +472,7 @@ function heatColor(n) {
   if (Math.abs(d) < 0.06) return mixRgb(OKC, OKC, 0);
   return mixRgb(OKC, d < 0 ? COLD : HOT, Math.min(1, (Math.abs(d) - 0.06) / 0.25));
 }
-const num = (v, nd = 0) => (v == null ? "–" : Number(v).toLocaleString("de-DE", { minimumFractionDigits: nd, maximumFractionDigits: nd }));
+const num = (v, nd = 0) => (v == null ? "–" : Number(v).toLocaleString(LOCALE, { minimumFractionDigits: nd, maximumFractionDigits: nd }));
 
 function pushHist(d) {
   const now = performance.now();

@@ -78,8 +78,8 @@ function renderFuel() {
   fuelInputs();
   const a = fuelAuto();
   $("#fu-lap").placeholder = a.lapMs ? fmt(Math.round(a.lapMs)) : "1:21.5";
-  $("#fu-cons").placeholder = a.cons ? a.cons.toFixed(2).replace(".", ",") : "z. B. 2,9";
-  $("#fu-tank").placeholder = a.tank != null ? a.tank.toFixed(1).replace(".", ",") : "–";
+  $("#fu-cons").placeholder = a.cons ? a.cons.toFixed(2).replace(".", DEC) : "z. B. 2,9";
+  $("#fu-tank").placeholder = a.tank != null ? a.tank.toFixed(1).replace(".", DEC) : "–";
   const len = numIn("#fu-len"), unit = $("#fu-unit").value;
   const lapMs = parseLap($("#fu-lap").value) || a.lapMs;
   const cons = numIn("#fu-cons") ?? a.cons;
@@ -95,7 +95,7 @@ function renderFuel() {
   const laps = unit === "laps" ? Math.ceil(len) : Math.ceil((len * 60000) / lapMs) + 1;
   const need = (laps + res) * cons;
   const add = tank != null ? need - tank : null;
-  const v = (x, d = 1) => x.toFixed(d).replace(".", ",");
+  const v = (x, d = 1) => x.toFixed(d).replace(".", DEC);
   out.replaceChildren(
     h("div", { class: "fu-big" }, h("div", {}, h("small", {}, "Sprit fürs Rennen"), h("b", {}, `${v(Math.ceil(need * 10) / 10)} l`)),
       h("div", {}, h("small", {}, "Runden"), h("b", {}, String(laps))),

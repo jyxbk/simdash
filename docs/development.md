@@ -38,11 +38,23 @@ There is no build step. Edit the files in `server/static/` and reload the page.
 
 ## Conventions
 
-- **Language**: the UI, log messages and code comments are German. The
-  documentation is English.
+- **Language**: the source texts of the UI, log messages and code comments are
+  German. The documentation is English.
+- **Translation**: `static/i18n.js` translates the UI to English at runtime. A
+  `MutationObserver` replaces every German text node and the `title`,
+  `aria-label` and `placeholder` attributes using the dictionary in
+  `static/i18n-en.js` – including texts that come from the server (coach tips,
+  setup diagnosis, error messages). Keys are the German texts; `{0}`, `{1}` …
+  are placeholders whose values are translated again (so `"Lenke etwa {0} m {1}
+  ein"` works with `{1}` = „später“/„früher“). Texts joined with ` · ` are
+  translated piece by piece. When you add or change a German text, add the
+  English entry. To find gaps, open the UI with `?lang=en&i18n-debug` and run
+  `I18N.missing()` in the browser console. Use `LOCALE` for
+  `toLocaleString()` and `DEC` as decimal separator; for text outside the DOM
+  (speech, `confirm`) call `tr()`.
 - **Frontend**: the classic scripts share one global scope, so function and
-  `const` names must be unique across `app.js`, `coach.js`, `progress.js` and
-  `live.js`. Bump `?v=` in `index.html` after frontend changes.
+  `const` names must be unique across all scripts (`i18n.js` and `i18n-en.js`
+  load first). Bump `?v=` in `index.html` after frontend changes.
 - **Collector**: standard library only, and it must run on Python 3.11 on
   Windows. Bump `VERSION` when the trace format or the payload changes.
 - **Trace format changes**: keep old laps readable. The server resamples, and

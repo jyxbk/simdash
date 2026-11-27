@@ -46,7 +46,7 @@ function renderCoach() {
     return;
   }
   const pbLabel = `Runde ${d.ref.lap_number ?? "?"}`;
-  sub.textContent = `Deine Bestzeit (${pbLabel}) gegen deine beste Fahrt in jeder Kurve · ${d.laps_used} saubere Runden${d.track_length_m ? ` · Strecke ≈ ${(d.track_length_m / 1000).toFixed(2).replace(".", ",")} km` : ""}`;
+  sub.textContent = `Deine Bestzeit (${pbLabel}) gegen deine beste Fahrt in jeder Kurve · ${d.laps_used} saubere Runden${d.track_length_m ? ` · Strecke ≈ ${(d.track_length_m / 1000).toFixed(2).replace(".", DEC)} km` : ""}`;
 
   const corners = d.corners;
   const ranked = corners.filter((c) => c.gain_ms >= MIN_GAIN).sort((a, b) => b.gain_ms - a.gain_ms);
