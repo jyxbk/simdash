@@ -30,6 +30,8 @@ and the analysis.
 
 ### Drivers
 
+![Driver dialog](img/drivers.png)
+
 Did a friend drive? Use **✎** on a session to assign the whole session, or
 single laps, to another name.
 
@@ -81,7 +83,7 @@ How the numbers are calculated: [coach.md](coach.md).
 
 ### Progress and notes ("Fortschritt", "Setup & Notizen")
 
-![Progress and notes](img/progress-notes.png)
+![Progress](img/progress.png)
 
 - **Progress**: best lap and median of the clean laps for each session. Up
   means faster. The text compares the last session with the one before it and
@@ -94,7 +96,7 @@ How the numbers are calculated: [coach.md](coach.md).
 Pick a lap and a reference lap. By default these are the newest valid lap and
 the fastest other lap.
 
-![Lap comparison map](img/lap-compare-map.png)
+![Lap comparison](img/compare.png)
 
 - **Track map**, with three modes:
   - *Tempo-Differenz*: speed difference in km/h, red = slower. The three
@@ -115,7 +117,6 @@ All laps of this car and track in order, with a PB line and an optional table.
 
 ![Live](img/live.png)
 
-<img src="img/live-phone.png" alt="Live tab on a phone" width="300">
 
 Open the tab on a second screen or your phone while driving. The phone screen
 stays on.
@@ -141,6 +142,8 @@ Which values appear depends on the game. See the table in the
 
 
 ## Cockpit (phone at the rig)
+
+![Cockpit on a phone](img/cockpit-phone.png)
 
 Open the live tab and tap **⛶ Cockpit** (or go to `/#cockpit`). Tap once to
 start: Android goes full screen and locks landscape; the screen stays on while

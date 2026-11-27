@@ -19,8 +19,11 @@ mirrors the car live on a second screen or your phone.
   setup note
 - Sessions grouped and collapsible, with *PB*, *invalid*, *estimated*, *out lap*
   and *in lap* markers
-- **Drivers**: assign laps or whole sessions to friends. Their laps don't count
-  toward your bests, and they can be tracked separately
+- **Drivers**: assign laps or whole sessions to friends, map in-game names
+  (nicknames, profile names) to a driver, set who is driving right now. Other
+  drivers' laps don't count toward your bests and can be tracked separately
+- **Safety rating** in the style of iRacing: corners per incident point over
+  the last sessions, licence classes R–A, history per session
 
 **Analysis & coach** ([how the coach works](docs/coach.md))
 - Corners are detected automatically from the speed trace
@@ -33,7 +36,13 @@ mirrors the car live on a second screen or your phone.
 - **Progress**: best and median lap per session over time
 - **Setup & notes** per track/car
 - **Lap comparison**: track map coloured by speed difference (GPS-track style
-  with callouts), delta over the lap, 10 mini sectors, speed overlay
+  with callouts), delta over the lap, 10 mini sectors, speed overlay; every
+  corner split into braking, turn-in, apex and exit
+- **Driving technique**: brake, steering and throttle together per corner
+  (trail braking, coasting, throttle pick-up, lifts)
+- **Setup diagnosis**: understeer and oversteer per corner and phase from
+  steering vs. driven line and countersteer, with the time it costs and setup
+  suggestions; **setup logbook** with an automatic before/after comparison
 
 **Live** (≈10 Hz over Server-Sent Events)
 - Live delta to your PB, predicted lap time, sector deltas, track map with trail
@@ -41,10 +50,27 @@ mirrors the car live on a second screen or your phone.
 - Tyres (pressure, core and surface temperatures), brakes, assists (TC, ABS, brake
   bias, engine map), engine and fuel range
 - Fits one 1080p screen and works on a phone (screen stays awake)
+- **Cockpit** for a phone at the rig: full-screen delta, times, speed/gear,
+  sectors, fuel, and a **ghost coach** that shows a hint ~220 m before each
+  corner where you have been faster; optional **voice callouts**
+
+## Screenshots
+
+All screenshots use demo driver names.
 
 | Coach | Live |
 |---|---|
 | ![Coach](docs/img/coach.png) | ![Live](docs/img/live.png) |
+| **Driving technique** | **Setup diagnosis** |
+| ![Driving technique](docs/img/technique.png) | ![Setup diagnosis](docs/img/setup.png) |
+| **Lap comparison** | **Safety rating** |
+| ![Lap comparison](docs/img/compare.png) | ![Safety rating](docs/img/safety.png) |
+| **Progress** | **Sessions** |
+| ![Progress](docs/img/progress.png) | ![Sessions](docs/img/sessions.png) |
+
+| Cockpit on a phone | Phone | Drivers |
+|---|---|---|
+| <img src="docs/img/cockpit-phone.png" alt="Cockpit" width="420"> | <img src="docs/img/overview-phone.png" alt="Overview on a phone" width="200"> | <img src="docs/img/drivers.png" alt="Driver dialog" width="260"> |
 
 **Robust collection**
 - Every lap is written locally first (`laps.csv` + queue) and resent when the
@@ -62,6 +88,7 @@ mirrors the car live on a second screen or your phone.
 | Assetto Corsa (2014) | `Local\acpmf_*` | not reported | ✓ / ✓ | physics block |
 | Assetto Corsa Rally | `Local\acpmf_*` (ACC layout) | unknown | ✓ / ✓ | experimental |
 | iRacing | iRacing SDK memory map | derived (4 wheels off / incident = invalid) | ✓ / – (no world position) | inputs, G, fuel, temperatures |
+| Le Mans Ultimate | `LMU_Data` (official shared-memory interface) | from game | ✓ / ✓ | experimental |
 | Automobilista 2 | `$pcars2$` (Project CARS 2 API, enable in *Options → System → Shared Memory*) | from game | ✓ / ✓ | inputs, G, yaw, fuel, tyres, brakes, TC/ABS |
 
 AC EVO has been tested most in real driving. The others are implemented from

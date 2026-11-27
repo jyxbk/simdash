@@ -391,7 +391,7 @@ def test_lmu_snapshot_reads_expected_offsets():
     m.buf[SI + 115] = 1                # Realtime
     m.put(128464, "<BB?", 3, 2, True)  # aktiv, Spieler-Index 2, hat Auto
     v = VEH + 1 * 584                  # Spieler ist Wertungseintrag 1
-    m.buf[v + 4:v + 9] = b"Jere\0"
+    m.buf[v + 4:v + 9] = b"Alex\0"
     m.buf[v + 36:v + 48] = b"Toyota GR010"
     m.put(v + 100, "<h", 5)
     m.put(v + 104, "<d", 6813.0)
@@ -419,7 +419,7 @@ def test_lmu_snapshot_reads_expected_offsets():
     src = sc.LmuSource(mapping=m)
     assert src.available()
     s = src.snapshot()
-    assert s.status == sc.STATUS_LIVE and s.track == "Le Mans" and s.car == "Toyota GR010" and s.driver == "Jere"
+    assert s.status == sc.STATUS_LIVE and s.track == "Le Mans" and s.car == "Toyota GR010" and s.driver == "Alex"
     assert s.lap_count == 5 and s.last_ms == 212250 and s.best_ms == 211500 and s.current_ms == 100000
     assert abs(s.npos - 0.5) < 1e-9 and s.valid_now is False and s.session_type == "practice"
     assert round(s.speed_kmh) == 180 and s.gear == 4 and s.rpm_pct == 0.8 and s.pos_z == -30.0
