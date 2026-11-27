@@ -8,6 +8,14 @@ trace: time, speed, pedals, gear, steering and position every ~5 m. The web UI
 shows your personal bests, compares laps, coaches you corner by corner and
 mirrors the car live on a second screen or your phone.
 
+**What runs where**
+
+| Part | Runs on | What it does |
+|---|---|---|
+| **Server + web UI** | Linux: a Debian/Ubuntu host, VM or **LXC container** (e.g. on Proxmox), Python 3.11+ | Stores laps (SQLite), runs the coach, serves the web UI on port **8080** |
+| **Collector** | The Windows gaming PC (where the sim runs) | Small Python script that reads the game's shared memory and sends laps to the server |
+| **Browser** | Any PC, tablet or phone on your LAN | Open `http://<server-ip>:8080` |
+
 ![Overview with session report](docs/img/overview.png)
 
 ## Features
