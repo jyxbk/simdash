@@ -2,6 +2,10 @@
 
 Self-hosted lap times, telemetry and driving coach for sim racing.
 
+**Supported games:** Assetto Corsa EVO · Assetto Corsa Competizione (ACC) ·
+Assetto Corsa (2014) · iRacing · Le Mans Ultimate (LMU) · Automobilista 2 (AMS2) ·
+Assetto Corsa Rally (experimental) — details in [Supported games](#supported-games).
+
 A small collector on your gaming PC reads the game's shared memory and sends
 every finished lap to a server in your home lab. Each lap includes its full
 trace: time, speed, pedals, gear, steering and position every ~5 m. The web UI
